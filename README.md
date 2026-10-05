@@ -1,114 +1,329 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Multi-Tenant, Multi-Branch Clothing Retail POS System (Bangladesh Market)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend built with **NestJS**, **TypeScript (ESM / NodeNext)**, **PostgreSQL (Supabase)**, and **Prisma 7**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Architecture & Technology Stack
+- **Framework:** NestJS 12 + Express platform
+- **Database ORM:** Prisma 7 with WASM/pg adapter (`@prisma/adapter-pg`)
+- **Authentication:** JWT (Stateless token verified against active `UserSession` SHA-256 hash in DB)
+- **Validation:** `class-validator` + `class-transformer` (global `ValidationPipe` with whitelist and transform)
+- **API Documentation:** Swagger OpenAPI at `/api/docs`
+- **Request Logging:** `morgan('dev')` terminal logger
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Core Business Rules Implemented in Phase 1
 
-```bash
-$ pnpm install
+1. **Hierarchy & Scoping:**
+   - Hierarchy: `Business -> Branches`. Every business has at least one branch (the main branch, `is_main = true`).
+   - Everything operational is branch-scoped (stock, sales, registers, expenses, invoice numbers).
+   - Customers are shared across all branches of a business (lookup by phone within `business_id`).
+2. **Last Active Branch Rule (Critical):**
+   - The last active branch of a business can **never** be deleted or deactivated. Attempting to deactivate it throws a `400 Bad Request`.
+3. **Plan Branch Limits:**
+   - Creating a branch validates active branch counts against `PlanLimit.max_branches` (and any active `SubscriptionOverride.override_max_branches`). Exceeding the limit throws `403 Forbidden`.
+4. **Subscription Status Enforcement:**
+   - All authenticated requests check the tenant's subscription status. If `SUSPENDED`, requests are immediately rejected with `403 Forbidden`.
+5. **Access Control & Branch Context:**
+   - Every protected operational request requires header `x-branch-id`.
+   - `BranchContextGuard` checks if the user has access via `UserBranchAccess`. Business owners automatically bypass branch restrictions and have full access to all branches.
+6. **ACID Business Onboarding:**
+   - A single transaction creates: `Business`, `Subscription` (30-day trial), main `Branch` (`is_main: true`), 3 default `Role`s (`OWNER`, `MANAGER`, `CASHIER`) with mapped `RolePermission`s, owner `User`, `UserBranchAccess`, `InvoiceSequence` records (`INV-`, `PO-`, `RET-`, `TRN-`, `JE-`, `EXP-`), default `CashRegister` (`REG-01`), and garment master data (`Unit`, `Size`, `Color`, `ExpenseCategory`).
+7. **Security:**
+   - Neither `business_id` nor `branch_id` from request bodies are trusted. `business_id` is extracted from the verified JWT payload, and `branch_id` is validated via `x-branch-id` against `UserBranchAccess`.
+
+---
+
+## Getting Started
+
+### 1. Prerequisites
+- Node.js `v20.19+`, `v22.12+`, or `v26+`
+- `pnpm` (version 9 or 10+)
+- PostgreSQL connection string (configured in `.env` as `DATABASE_URL`)
+
+### 2. Environment Configuration
+Ensure `.env` in the `backend/` directory contains:
+```env
+DATABASE_URL="postgresql://postgres.[user]:[password]@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
+PORT=4000
+JWT_SECRET="super-secret-shop-jwt-key-2026"
 ```
 
-## Compile and run the project
-
+### 3. Install Dependencies & Generate Prisma Client
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+pnpm install
+npx prisma generate
 ```
 
-## Run tests
-
+### 4. Seed Permissions, SuperAdmin & Plans
+Run the database seed script to populate system permissions, the SuperAdmin user (`admin@pos.com`), and default plans (`STARTER`, `BUSINESS`) with plan limits:
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+pnpm run seed
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
+### 5. Run the Application
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# Development mode with hot-reload
+pnpm run start:dev
+
+# Production build and run
+pnpm run build
+pnpm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+The server will start at:
+- **API URL:** `http://localhost:4000`
+- **Swagger Documentation:** `http://localhost:4000/api/docs`
 
-## Observability
+### 6. Run Automated Tests
+```bash
+pnpm test
+```
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+---
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+## API Endpoints & cURL / Postman Examples
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+### 1. Onboarding a New Business
+**Endpoint:** `POST /api/v1/onboarding`  
+**Access:** Public  
+Creates the business, trial subscription, main branch, owner user, default roles, invoice sequences, cash register, and apparel master items in a single transaction.
 
-## Resources
+```bash
+curl -X POST http://localhost:4000/api/v1/onboarding \
+  -H "Content-Type: application/json" \
+  -d '{
+    "businessName": "Aarong Fashion Boutique",
+    "businessSlug": "aarong-boutique",
+    "phone": "01711000111",
+    "email": "owner@aarong-boutique.com",
+    "ownerFirstName": "Kamal",
+    "ownerLastName": "Hossain",
+    "password": "Password123!",
+    "branchName": "Gulshan Flagship Showroom",
+    "branchCode": "MAIN",
+    "branchAddress": "House 12, Road 11, Gulshan-1, Dhaka",
+    "branchCity": "Dhaka",
+    "planCode": "STARTER"
+  }'
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+**Response (201 Created):**
+```json
+{
+  "message": "Business onboarded successfully! Welcome to your Shop Management SaaS.",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsIn...",
+  "session": {
+    "id": "uuid",
+    "expiresAt": "2026-10-13T..."
+  },
+  "business": {
+    "id": "c1f77d34-...",
+    "name": "Aarong Fashion Boutique",
+    "slug": "aarong-boutique",
+    "phone": "01711000111",
+    "email": "owner@aarong-boutique.com",
+    "currency": "BDT",
+    "timezone": "Asia/Dhaka"
+  },
+  "mainBranch": {
+    "id": "5f64d0bb-...",
+    "name": "Gulshan Flagship Showroom",
+    "code": "MAIN",
+    "address": "House 12, Road 11, Gulshan-1, Dhaka",
+    "isMain": true
+  },
+  "owner": {
+    "id": "e2a3c712-...",
+    "firstName": "Kamal",
+    "lastName": "Hossain",
+    "email": "owner@aarong-boutique.com",
+    "phone": "01711000111",
+    "isOwner": true
+  },
+  "subscription": {
+    "plan": "Starter Boutique Plan",
+    "code": "STARTER",
+    "status": "TRIAL",
+    "trialEndsAt": "2026-11-05T..."
+  }
+}
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+### 2. User Login
+**Endpoint:** `POST /api/v1/auth/login`  
+**Access:** Public  
+Login with either email or phone + password. Optionally supply `businessSlug` to disambiguate identical emails/phones across different tenants.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+curl -X POST http://localhost:4000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifier": "owner@aarong-boutique.com",
+    "password": "Password123!",
+    "businessSlug": "aarong-boutique"
+  }'
+```
 
-## Stay in touch
+**Response (200 OK):**
+```json
+{
+  "message": "Login successful",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsIn...",
+  "user": {
+    "id": "uuid",
+    "firstName": "Kamal",
+    "lastName": "Hossain",
+    "email": "owner@aarong-boutique.com",
+    "phone": "01711000111",
+    "isOwner": true,
+    "role": {
+      "id": "uuid",
+      "name": "Owner",
+      "code": "OWNER"
+    }
+  },
+  "business": {
+    "id": "uuid",
+    "name": "Aarong Fashion Boutique",
+    "slug": "aarong-boutique",
+    "currency": "BDT",
+    "subscriptionStatus": "TRIAL"
+  },
+  "accessibleBranches": [
+    {
+      "id": "5f64d0bb-...",
+      "name": "Gulshan Flagship Showroom",
+      "code": "MAIN",
+      "isMain": true,
+      "isDefault": true
+    }
+  ]
+}
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
 
-## License
+### 3. Get Current User Profile (`/auth/me`)
+**Endpoint:** `GET /api/v1/auth/me`  
+**Access:** Authenticated (Bearer Token)
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```bash
+curl -X GET http://localhost:4000/api/v1/auth/me \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>"
+```
+
+---
+
+### 4. Logout (Revoke Session)
+**Endpoint:** `POST /api/v1/auth/logout`  
+**Access:** Authenticated (Bearer Token)
+
+```bash
+curl -X POST http://localhost:4000/api/v1/auth/logout \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>"
+```
+
+---
+
+### 5. Branch Management
+
+#### A. List Branches
+**Endpoint:** `GET /api/v1/branches`  
+**Access:** Authenticated
+
+```bash
+curl -X GET http://localhost:4000/api/v1/branches \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>"
+```
+
+#### B. Create Branch
+**Endpoint:** `POST /api/v1/branches`  
+**Access:** Authenticated (Requires `branches:create` permission or Owner)  
+*Note: Subject to subscription `PlanLimit.max_branches`.*
+
+```bash
+curl -X POST http://localhost:4000/api/v1/branches \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Dhanmondi Showroom",
+    "code": "DHANMONDI",
+    "address": "House 27, Road 4, Dhanmondi",
+    "city": "Dhaka",
+    "phone": "01722334455",
+    "email": "dhanmondi@aarong-boutique.com"
+  }'
+```
+
+#### C. Get Single Branch
+**Endpoint:** `GET /api/v1/branches/:id`  
+**Access:** Authenticated
+
+```bash
+curl -X GET http://localhost:4000/api/v1/branches/<BRANCH_UUID> \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>"
+```
+
+#### D. Update Branch
+**Endpoint:** `PATCH /api/v1/branches/:id`  
+**Access:** Authenticated (Requires `branches:update` or Owner)
+
+```bash
+curl -X PATCH http://localhost:4000/api/v1/branches/<BRANCH_UUID> \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Dhanmondi Flagship Outlet",
+    "phone": "01722334466"
+  }'
+```
+
+#### E. Deactivate Branch (Enforces Last Active Branch Rule)
+**Endpoint:** `DELETE /api/v1/branches/:id`  
+**Access:** Authenticated (Requires `branches:delete` or Owner)  
+*Note: If the branch is the only active branch remaining, the server rejects with `400 Bad Request: Cannot deactivate the last active branch of a business`.*
+
+```bash
+curl -X DELETE http://localhost:4000/api/v1/branches/<BRANCH_UUID> \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>"
+```
+
+#### F. Assign User to Branch
+**Endpoint:** `POST /api/v1/branches/:id/users`  
+**Access:** Authenticated (Requires `branches:assign_user` or Owner)
+
+```bash
+curl -X POST http://localhost:4000/api/v1/branches/<BRANCH_UUID>/users \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "<STAFF_USER_UUID>",
+    "isDefault": true
+  }'
+```
+
+#### G. Revoke User Access from Branch
+**Endpoint:** `DELETE /api/v1/branches/:id/users/:userId`  
+**Access:** Authenticated (Requires `branches:assign_user` or Owner)
+
+```bash
+curl -X DELETE http://localhost:4000/api/v1/branches/<BRANCH_UUID>/users/<STAFF_USER_UUID> \
+  -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>"
+```
+
+---
+
+## Operating Scoped Endpoints (Header: `x-branch-id`)
+When invoking operational endpoints (such as POS checkout, product stock lookups, cash sessions, expenses), the request must carry the header:
+```http
+x-branch-id: <branch-uuid>
+```
+`BranchContextGuard` will:
+1. Verify the branch belongs to the user's business and is active.
+2. Confirm the user has access to that branch in `UserBranchAccess` (or is the business owner).
+3. Attach `{ businessId, userId, branchId, isAllBranchAdmin }` to the request object.
