@@ -8,8 +8,8 @@ import { PrismaModule } from '../../prisma/prisma.module.js';
   imports: [
     PrismaModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super-secret-shop-jwt-key-2026',
-      signOptions: { expiresIn: '7d' },
+      secret: process.env.JWT_SECRET || 'super-secret-shop-jwt-key-2026-production-ready',
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any },
     }),
   ],
   controllers: [AuthController],
