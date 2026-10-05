@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +8,2188 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum SuperAdminRole {
+  SUPER_ADMIN
+  PLATFORM_SUPPORT
+  BILLING_ADMIN
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAYMENT_DUE
+  GRACE
+  SUSPENDED
+  CANCELLED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum PlatformInvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOID
+  OVERDUE
+}
+
+enum PlatformPaymentMethod {
+  BKASH
+  NAGAD
+  BANK_TRANSFER
+  CARDS
+  CASH
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum Gender {
+  MEN
+  WOMEN
+  BOYS
+  GIRLS
+  UNISEX
+  KIDS
+}
+
+enum PriceListType {
+  RETAIL
+  WHOLESALE
+  FESTIVE_OFFER
+}
+
+enum StockMovementType {
+  OPENING
+  PURCHASE
+  SALE
+  SALE_RETURN
+  EXCHANGE_IN
+  EXCHANGE_OUT
+  DAMAGE
+  ADJUSTMENT_POSITIVE
+  ADJUSTMENT_NEGATIVE
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+enum StockReferenceType {
+  PURCHASE
+  SALE
+  RETURN
+  EXCHANGE
+  ADJUSTMENT
+  TRANSFER
+  STOCKTAKE
+  OPENING_BALANCE
+}
+
+enum AdjustmentReason {
+  PHYSICAL_COUNT_DISCREPANCY
+  FOUND_STOCK
+  EXPIRED
+  INTERNAL_USE
+  OTHER
+}
+
+enum AdjustmentStatus {
+  DRAFT
+  APPROVED
+  CANCELLED
+}
+
+enum StockTransferStatus {
+  PENDING
+  IN_TRANSIT
+  RECEIVED
+  REJECTED
+  CANCELLED
+}
+
+enum StocktakeStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DamageStatus {
+  PENDING
+  APPROVED
+  WRITTEN_OFF
+}
+
+enum POStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum PurchaseStatus {
+  RECEIVED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum ReturnStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK
+  BKASH
+  NAGAD
+  CARDS
+  CHEQUE
+}
+
+enum SaleType {
+  RETAIL
+  WHOLESALE
+}
+
+enum SaleStatus {
+  COMPLETED
+  PARTIALLY_PAID
+  DUE
+  VOIDED
+  RETURNED
+  EXCHANGED
+}
+
+enum RefundMethod {
+  CASH
+  BKASH
+  NAGAD
+  STORE_CREDIT
+  ADJUSTED_IN_EXCHANGE
+}
+
+enum ItemCondition {
+  RESELLABLE
+  DAMAGED
+}
+
+enum ExchangeDiffStatus {
+  CUSTOMER_PAID
+  SHOP_REFUNDED
+  EVEN
+}
+
+enum ExchangeItemType {
+  RETURNED
+  TAKEN
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum SessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum CashMovementType {
+  PAY_IN
+  PAY_OUT
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum JournalRefType {
+  SALE
+  SALE_RETURN
+  PURCHASE
+  PURCHASE_RETURN
+  DUE_COLLECTION
+  SUPPLIER_PAYMENT
+  EXPENSE
+  STOCK_ADJUSTMENT
+  CASH_MOVEMENT
+  MANUAL
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+  REVERSED
+}
+
+enum PaymentAccountType {
+  CASH
+  BANK
+  BKASH
+  NAGAD
+  UPAY
+  ROCKET
+}
+
+enum SequenceType {
+  SALE_INVOICE
+  PURCHASE_INVOICE
+  RETURN_INVOICE
+  TRANSFER_INVOICE
+  JOURNAL_ENTRY
+  EXPENSE_VOUCHER
+}
+
+enum NotificationType {
+  LOW_STOCK
+  SUBSCRIPTION_DUE
+  SYSTEM_ALERT
+  TRANSFER_REQUEST
+}
+
+enum SmsStatus {
+  PENDING
+  SENT
+  FAILED
+  DELIVERED
+}
+
+enum SmsPurpose {
+  SALE_INVOICE
+  DUE_REMINDER
+  OTP
+  PROMOTIONAL
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  VOID
+  LOGIN
+  LOGOUT
+  SYNC
+  APPROVE
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum SyncStatus {
+  PENDING
+  PROCESSED
+  CONFLICT
+  FAILED
+}
+
+enum UnitStatus {
+  IN_STOCK
+  SOLD
+  RETURNED
+  DAMAGED
+  LOST
+  IN_TRANSIT
+}
+
+enum BarcodePrintType {
+  INITIAL_PRINT
+  REPRINT
+}
+
+// ============================================================================
+// GROUP 1: PLATFORM MODELS
+// ============================================================================
+
+model SuperAdmin {
+  id            String         @id @default(uuid()) @db.Uuid
+  email         String         @unique
+  password_hash String
+  first_name    String
+  last_name     String
+  phone         String?
+  role          SuperAdminRole @default(PLATFORM_SUPPORT)
+  is_active     Boolean        @default(true)
+  last_login_at DateTime?
+  created_at    DateTime       @default(now())
+  updated_at    DateTime       @updatedAt
+
+  subscription_overrides SubscriptionOverride[]
+  support_tickets        SupportTicket[]
+
+  @@map("super_admins")
+}
+
+model Plan {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  code          String   @unique
+  description   String?
+  monthly_price Decimal  @db.Decimal(18, 2)
+  yearly_price  Decimal  @db.Decimal(18, 2)
+  trial_days    Int      @default(30)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  limits                PlanLimit?
+  subscriptions         Subscription[]
+  subscription_invoices SubscriptionInvoice[]
+
+  @@map("plans")
+}
+
+model PlanLimit {
+  id                   String   @id @default(uuid()) @db.Uuid
+  plan_id              String   @unique @db.Uuid
+  max_branches         Int      @default(1)
+  max_users            Int      @default(3)
+  max_products         Int      @default(500)
+  max_variants         Int      @default(1500)
+  max_monthly_invoices Int      @default(1000)
+  has_api_access       Boolean  @default(false)
+  has_custom_reports   Boolean  @default(false)
+  has_offline_sync     Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  plan Plan @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+
+  @@map("plan_limits")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid()) @db.Uuid
+  business_id          String             @unique @db.Uuid
+  plan_id              String             @db.Uuid
+  status               SubscriptionStatus @default(TRIAL)
+  billing_cycle        BillingCycle       @default(MONTHLY)
+  current_period_start DateTime           @default(now())
+  current_period_end   DateTime
+  trial_starts_at      DateTime           @default(now())
+  trial_ends_at        DateTime
+  grace_ends_at        DateTime?
+  cancelled_at         DateTime?
+  is_free_access       Boolean            @default(false)
+  created_at           DateTime           @default(now())
+  updated_at           DateTime           @updatedAt
+
+  business Business              @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  plan     Plan                  @relation(fields: [plan_id], references: [id], onDelete: Restrict)
+  invoices SubscriptionInvoice[]
+
+  @@map("subscriptions")
+}
+
+model SubscriptionOverride {
+  id                    String    @id @default(uuid()) @db.Uuid
+  business_id           String    @db.Uuid
+  super_admin_id        String    @db.Uuid
+  custom_monthly_price  Decimal?  @db.Decimal(18, 2)
+  custom_yearly_price   Decimal?  @db.Decimal(18, 2)
+  discount_percentage   Decimal?  @db.Decimal(5, 2)
+  is_free_access        Boolean   @default(false)
+  override_max_branches Int?
+  override_max_users    Int?
+  override_max_products Int?
+  override_max_variants Int?
+  trial_extended_days   Int?
+  reason                String
+  valid_until           DateTime?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  business    Business   @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  super_admin SuperAdmin @relation(fields: [super_admin_id], references: [id], onDelete: Restrict)
+
+  @@index([business_id])
+  @@map("subscription_overrides")
+}
+
+model SubscriptionInvoice {
+  id              String                @id @default(uuid()) @db.Uuid
+  invoice_no      String                @unique
+  business_id     String                @db.Uuid
+  subscription_id String                @db.Uuid
+  plan_id         String                @db.Uuid
+  amount          Decimal               @db.Decimal(18, 2)
+  discount_amount Decimal               @default(0) @db.Decimal(18, 2)
+  net_amount      Decimal               @db.Decimal(18, 2)
+  status          PlatformInvoiceStatus @default(ISSUED)
+  billing_start   DateTime
+  billing_end     DateTime
+  due_date        DateTime
+  paid_at         DateTime?
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+
+  business     Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  subscription Subscription      @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+  plan         Plan              @relation(fields: [plan_id], references: [id], onDelete: Restrict)
+  payments     PlatformPayment[]
+
+  @@index([business_id, status])
+  @@map("subscription_invoices")
+}
+
+model PlatformPayment {
+  id             String                @id @default(uuid()) @db.Uuid
+  invoice_id     String                @db.Uuid
+  business_id    String                @db.Uuid
+  amount         Decimal               @db.Decimal(18, 2)
+  payment_method PlatformPaymentMethod
+  transaction_id String?
+  provider_ref   String?
+  status         PlatformInvoiceStatus @default(PAID)
+  paid_at        DateTime?
+  created_at     DateTime              @default(now())
+  updated_at     DateTime              @updatedAt
+
+  invoice  SubscriptionInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  business Business            @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id])
+  @@map("platform_payments")
+}
+
+model SupportTicket {
+  id                String         @id @default(uuid()) @db.Uuid
+  ticket_no         String         @unique
+  business_id       String         @db.Uuid
+  user_id           String?        @db.Uuid
+  assigned_admin_id String?        @db.Uuid
+  subject           String
+  description       String
+  priority          TicketPriority @default(MEDIUM)
+  status            TicketStatus   @default(OPEN)
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+
+  business       Business    @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  user           User?       @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  assigned_admin SuperAdmin? @relation(fields: [assigned_admin_id], references: [id], onDelete: SetNull)
+
+  @@index([business_id, status])
+  @@map("support_tickets")
+}
+
+model SystemSetting {
+  id           String   @id @default(uuid()) @db.Uuid
+  key          String   @unique
+  value        String
+  description  String?
+  is_encrypted Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// ============================================================================
+// GROUP 2: TENANT MODELS
+// ============================================================================
+
+model Business {
+  id               String         @id @default(uuid()) @db.Uuid
+  name             String
+  slug             String         @unique
+  legal_name       String?
+  trade_license_no String?
+  tin_no           String?
+  bin_no           String?
+  phone            String
+  email            String
+  currency         String         @default("BDT")
+  timezone         String         @default("Asia/Dhaka")
+  status           BusinessStatus @default(ACTIVE)
+  is_active        Boolean        @default(true)
+  deleted_at       DateTime?
+  created_at       DateTime       @default(now())
+  updated_at       DateTime       @updatedAt
+
+  branches               Branch[]
+  users                  User[]
+  roles                  Role[]
+  categories             Category[]
+  brands                 Brand[]
+  seasons                Season[]
+  sizes                  Size[]
+  colors                 Color[]
+  units                  Unit[]
+  products               Product[]
+  product_variants       ProductVariant[]
+  price_lists            PriceList[]
+  stock_movements        StockMovement[]
+  stock_balances         StockBalance[]
+  stock_adjustments      StockAdjustment[]
+  stock_transfers        StockTransfer[]
+  stocktakes             Stocktake[]
+  damaged_stocks         DamagedStock[]
+  suppliers              Supplier[]
+  purchase_orders        PurchaseOrder[]
+  purchases              Purchase[]
+  purchase_returns       PurchaseReturn[]
+  supplier_payments      SupplierPayment[]
+  customers              Customer[]
+  sales                  Sale[]
+  sale_payments          SalePayment[]
+  held_sales             HeldSale[]
+  sales_returns          SalesReturn[]
+  exchanges              Exchange[]
+  due_collections        DueCollection[]
+  discounts              Discount[]
+  coupons                Coupon[]
+  cash_registers         CashRegister[]
+  register_sessions      RegisterSession[]
+  cash_movements         CashMovement[]
+  chart_of_accounts      ChartOfAccount[]
+  journal_entries        JournalEntry[]
+  fiscal_periods         FiscalPeriod[]
+  payment_accounts       PaymentAccount[]
+  expense_categories     ExpenseCategory[]
+  expenses               Expense[]
+  invoice_sequences      InvoiceSequence[]
+  notifications          Notification[]
+  sms_logs               SmsLog[]
+  audit_logs             AuditLog[]
+  idempotency_keys       IdempotencyKey[]
+  attachments            Attachment[]
+  sync_queues            SyncQueue[]
+  subscription           Subscription?
+  subscription_overrides SubscriptionOverride[]
+  subscription_invoices  SubscriptionInvoice[]
+  platform_payments      PlatformPayment[]
+  support_tickets        SupportTicket[]
+  user_sessions          UserSession[]
+  user_branch_access     UserBranchAccess[]
+  product_units          ProductUnit[]
+  barcode_print_logs     BarcodePrintLog[]
+  product_branches       ProductBranch[]
+
+  @@map("businesses")
+}
+
+model Branch {
+  id          String    @id @default(uuid()) @db.Uuid
+  business_id String    @db.Uuid
+  name        String
+  code        String
+  address     String
+  city        String    @default("Dhaka")
+  state       String?
+  postal_code String?
+  phone       String
+  email       String?
+  is_main     Boolean   @default(false)
+  is_active   Boolean   @default(true)
+  deleted_at  DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  business           Business           @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  user_branch_access UserBranchAccess[]
+  stock_movements    StockMovement[]
+  stock_balances     StockBalance[]
+  stock_adjustments  StockAdjustment[]
+  stocktakes         Stocktake[]
+  damaged_stocks     DamagedStock[]
+  transfers_sent     StockTransfer[]    @relation("TransfersSent")
+  transfers_received StockTransfer[]    @relation("TransfersReceived")
+  purchase_orders    PurchaseOrder[]
+  purchases          Purchase[]
+  purchase_returns   PurchaseReturn[]
+  supplier_payments  SupplierPayment[]
+  sales              Sale[]
+  sale_payments      SalePayment[]
+  held_sales         HeldSale[]
+  sales_returns      SalesReturn[]
+  exchanges          Exchange[]
+  due_collections    DueCollection[]
+  cash_registers     CashRegister[]
+  register_sessions  RegisterSession[]
+  cash_movements     CashMovement[]
+  journal_entries    JournalEntry[]
+  payment_accounts   PaymentAccount[]
+  expenses           Expense[]
+  invoice_sequences  InvoiceSequence[]
+  notifications      Notification[]
+  sms_logs           SmsLog[]
+  audit_logs         AuditLog[]
+  sync_queues        SyncQueue[]
+  product_units      ProductUnit[]
+  barcode_print_logs BarcodePrintLog[]
+  product_branches   ProductBranch[]
+
+  @@unique([business_id, code])
+  @@index([business_id, is_active])
+  @@map("branches")
+}
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  business_id   String    @db.Uuid
+  first_name    String
+  last_name     String
+  email         String
+  phone         String
+  password_hash String
+  role_id       String    @db.Uuid
+  is_owner      Boolean   @default(false)
+  is_active     Boolean   @default(true)
+  deleted_at    DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  business           Business           @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  role               Role               @relation(fields: [role_id], references: [id], onDelete: Restrict)
+  user_branch_access UserBranchAccess[]
+  sessions           UserSession[]
+  support_tickets    SupportTicket[]
+  register_sessions  RegisterSession[]
+  notifications      Notification[]
+  audit_logs         AuditLog[]
+  barcode_print_logs BarcodePrintLog[]
+
+  @@unique([business_id, email])
+  @@unique([business_id, phone])
+  @@index([business_id, role_id])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String?  @db.Uuid
+  name        String
+  code        String
+  description String?
+  is_system   Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business         Business?        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  users            User[]
+  role_permissions RolePermission[]
+
+  @@unique([business_id, code])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  code        String   @unique
+  module      String
+  description String?
+  created_at  DateTime @default(now())
+
+  role_permissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id            String   @id @default(uuid()) @db.Uuid
+  role_id       String   @db.Uuid
+  permission_id String   @db.Uuid
+  created_at    DateTime @default(now())
+
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, permission_id])
+  @@map("role_permissions")
+}
+
+model UserBranchAccess {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  branch_id   String   @db.Uuid
+  business_id String   @db.Uuid
+  is_default  Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, branch_id])
+  @@index([business_id])
+  @@map("user_branch_access")
+}
+
+model UserSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  business_id String   @db.Uuid
+  token_hash  String   @unique
+  ip_address  String?
+  user_agent  String?
+  expires_at  DateTime
+  is_revoked  Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, user_id])
+  @@map("user_sessions")
+}
+
+// ============================================================================
+// GROUP 3: CATALOG MODELS
+// ============================================================================
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  business_id String    @db.Uuid
+  parent_id   String?   @db.Uuid
+  name        String
+  code        String
+  description String?
+  is_active   Boolean   @default(true)
+  deleted_at  DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  business Business   @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryHierarchy")
+  products Product[]
+
+  @@unique([business_id, code])
+  @@index([business_id, is_active])
+  @@map("categories")
+}
+
+model Brand {
+  id          String    @id @default(uuid()) @db.Uuid
+  business_id String    @db.Uuid
+  name        String
+  code        String
+  deleted_at  DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  business Business  @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([business_id, code])
+  @@index([business_id])
+  @@map("brands")
+}
+
+model Season {
+  id          String    @id @default(uuid()) @db.Uuid
+  business_id String    @db.Uuid
+  name        String
+  code        String
+  start_date  DateTime?
+  end_date    DateTime?
+  deleted_at  DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  business Business  @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([business_id, code])
+  @@index([business_id])
+  @@map("seasons")
+}
+
+model Size {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String?  @db.Uuid
+  name        String
+  code        String
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business Business?        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  variants ProductVariant[]
+
+  @@unique([business_id, code])
+  @@map("sizes")
+}
+
+model Color {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String?  @db.Uuid
+  name        String
+  code        String
+  hex_code    String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business Business?        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  variants ProductVariant[]
+
+  @@unique([business_id, code])
+  @@map("colors")
+}
+
+model Unit {
+  id            String   @id @default(uuid()) @db.Uuid
+  business_id   String?  @db.Uuid
+  name          String
+  code          String
+  allow_decimal Boolean  @default(false)
+  created_at    DateTime @default(now())
+
+  business Business? @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([business_id, code])
+  @@map("units")
+}
+
+model Product {
+  id                 String    @id @default(uuid()) @db.Uuid
+  business_id        String    @db.Uuid
+  category_id        String    @db.Uuid
+  brand_id           String?   @db.Uuid
+  season_id          String?   @db.Uuid
+  unit_id            String    @db.Uuid
+  name               String
+  code               String
+  gender             Gender    @default(UNISEX)
+  fabric             String?
+  description        String?
+  has_variants       Boolean   @default(true)
+  track_individually Boolean   @default(false)
+  is_active          Boolean   @default(true)
+  deleted_at         DateTime?
+  created_by         String?   @db.Uuid
+  updated_by         String?   @db.Uuid
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  business Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  category Category         @relation(fields: [category_id], references: [id], onDelete: Restrict)
+  brand    Brand?           @relation(fields: [brand_id], references: [id], onDelete: SetNull)
+  season   Season?          @relation(fields: [season_id], references: [id], onDelete: SetNull)
+  unit     Unit             @relation(fields: [unit_id], references: [id], onDelete: Restrict)
+  variants ProductVariant[]
+  branches ProductBranch[]
+
+  @@unique([business_id, code])
+  @@index([business_id, name])
+  @@index([business_id, category_id])
+  @@index([business_id, is_active])
+  @@map("products")
+}
+
+model ProductBranch {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String   @db.Uuid
+  product_id  String   @db.Uuid
+  branch_id   String   @db.Uuid
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+
+  @@unique([product_id, branch_id])
+  @@index([business_id, branch_id, is_active])
+  @@map("product_branches")
+}
+
+model ProductVariant {
+  id              String    @id @default(uuid()) @db.Uuid
+  business_id     String    @db.Uuid
+  product_id      String    @db.Uuid
+  size_id         String?   @db.Uuid
+  color_id        String?   @db.Uuid
+  sku             String
+  barcode         String
+  retail_price    Decimal   @db.Decimal(18, 2)
+  wholesale_price Decimal   @db.Decimal(18, 2)
+  cost_price      Decimal   @db.Decimal(18, 2)
+  reorder_level   Int       @default(5)
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  business               Business              @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  product                Product               @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  size                   Size?                 @relation(fields: [size_id], references: [id], onDelete: SetNull)
+  color                  Color?                @relation(fields: [color_id], references: [id], onDelete: SetNull)
+  price_list_items       PriceListItem[]
+  stock_movements        StockMovement[]
+  stock_balances         StockBalance[]
+  stock_adjustment_items StockAdjustmentItem[]
+  stock_transfer_items   StockTransferItem[]
+  stocktake_items        StocktakeItem[]
+  damaged_stocks         DamagedStock[]
+  purchase_order_items   PurchaseOrderItem[]
+  purchase_items         PurchaseItem[]
+  purchase_return_items  PurchaseReturnItem[]
+  sale_items             SaleItem[]
+  held_sale_items        HeldSaleItem[]
+  sales_return_items     SalesReturnItem[]
+  exchange_items         ExchangeItem[]
+  product_units          ProductUnit[]
+  barcode_print_logs     BarcodePrintLog[]
+
+  @@unique([business_id, sku])
+  @@unique([business_id, barcode])
+  @@index([business_id, barcode])
+  @@index([business_id, sku])
+  @@index([product_id])
+  @@map("product_variants")
+}
+
+model ProductUnit {
+  id                 String     @id @default(uuid()) @db.Uuid
+  business_id        String     @db.Uuid
+  branch_id          String     @db.Uuid
+  product_variant_id String     @db.Uuid
+  barcode_value      String
+  status             UnitStatus @default(IN_STOCK)
+  purchase_id        String?    @db.Uuid
+  sold_sale_id       String?    @db.Uuid
+  sold_at            DateTime?
+  created_at         DateTime   @default(now())
+  updated_at         DateTime   @updatedAt
+
+  business   Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch     Branch            @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  variant    ProductVariant    @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+  purchase   Purchase?         @relation(fields: [purchase_id], references: [id], onDelete: SetNull)
+  sold_sale  Sale?             @relation("SoldUnits", fields: [sold_sale_id], references: [id], onDelete: SetNull)
+  sale_items SaleItem[]
+  print_logs BarcodePrintLog[]
+
+  @@unique([business_id, barcode_value])
+  @@index([business_id, branch_id, status])
+  @@index([product_variant_id, status])
+  @@index([sold_sale_id])
+  @@map("product_units")
+}
+
+model BarcodePrintLog {
+  id                 String           @id @default(uuid()) @db.Uuid
+  business_id        String           @db.Uuid
+  branch_id          String           @db.Uuid
+  product_unit_id    String?          @db.Uuid
+  product_variant_id String?          @db.Uuid
+  barcode_value      String
+  print_type         BarcodePrintType @default(INITIAL_PRINT)
+  reason             String?
+  printed_by         String           @db.Uuid
+  printed_at         DateTime         @default(now())
+  label_format       String           @default("CODE_128")
+  quantity_printed   Int              @default(1)
+
+  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch          Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  product_unit    ProductUnit?    @relation(fields: [product_unit_id], references: [id], onDelete: SetNull)
+  product_variant ProductVariant? @relation(fields: [product_variant_id], references: [id], onDelete: SetNull)
+  user            User            @relation(fields: [printed_by], references: [id], onDelete: Restrict)
+
+  @@index([business_id, branch_id, printed_at])
+  @@index([business_id, barcode_value])
+  @@map("barcode_print_logs")
+}
+
+model PriceList {
+  id          String        @id @default(uuid()) @db.Uuid
+  business_id String        @db.Uuid
+  name        String
+  code        String
+  type        PriceListType @default(RETAIL)
+  is_default  Boolean       @default(false)
+  is_active   Boolean       @default(true)
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+
+  business Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  items    PriceListItem[]
+
+  @@unique([business_id, code])
+  @@map("price_lists")
+}
+
+model PriceListItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  price_list_id      String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  price              Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  price_list PriceList      @relation(fields: [price_list_id], references: [id], onDelete: Cascade)
+  variant    ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Cascade)
+
+  @@unique([price_list_id, product_variant_id])
+  @@map("price_list_items")
+}
+
+// ============================================================================
+// GROUP 4: INVENTORY MODELS
+// ============================================================================
+
+model StockMovement {
+  id                 String             @id @default(uuid()) @db.Uuid
+  business_id        String             @db.Uuid
+  branch_id          String             @db.Uuid
+  product_variant_id String             @db.Uuid
+  movement_type      StockMovementType
+  quantity           Decimal            @db.Decimal(14, 4)
+  unit_cost          Decimal            @db.Decimal(18, 2)
+  new_wac            Decimal            @db.Decimal(18, 2)
+  reference_type     StockReferenceType
+  reference_id       String             @db.Uuid
+  batch_no           String?
+  remarks            String?
+  created_by         String             @db.Uuid
+  created_at         DateTime           @default(now())
+
+  business Business       @relation(fields: [business_id], references: [id], onDelete: Restrict)
+  branch   Branch         @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  variant  ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([business_id, branch_id, product_variant_id])
+  @@index([business_id, reference_type, reference_id])
+  @@index([business_id, created_at])
+  @@map("stock_movements")
+}
+
+model StockBalance {
+  id                 String    @id @default(uuid()) @db.Uuid
+  business_id        String    @db.Uuid
+  branch_id          String    @db.Uuid
+  product_variant_id String    @db.Uuid
+  quantity           Decimal   @default(0) @db.Decimal(14, 4)
+  allocated_quantity Decimal   @default(0) @db.Decimal(14, 4)
+  avg_cost_price     Decimal   @default(0) @db.Decimal(18, 2)
+  total_cost_value   Decimal   @default(0) @db.Decimal(18, 2)
+  last_movement_at   DateTime?
+  updated_at         DateTime  @updatedAt
+
+  business Business       @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch         @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Cascade)
+
+  @@unique([business_id, branch_id, product_variant_id])
+  @@index([business_id, branch_id])
+  @@map("stock_balances")
+}
+
+model StockAdjustment {
+  id            String           @id @default(uuid()) @db.Uuid
+  business_id   String           @db.Uuid
+  branch_id     String           @db.Uuid
+  adjustment_no String
+  reason        AdjustmentReason @default(PHYSICAL_COUNT_DISCREPANCY)
+  status        AdjustmentStatus @default(DRAFT)
+  approved_by   String?          @db.Uuid
+  approved_at   DateTime?
+  notes         String?
+  created_by    String           @db.Uuid
+  created_at    DateTime         @default(now())
+  updated_at    DateTime         @updatedAt
+
+  business Business              @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch                @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  items    StockAdjustmentItem[]
+
+  @@unique([business_id, branch_id, adjustment_no])
+  @@index([business_id, branch_id, status])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  adjustment_id      String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  system_qty         Decimal  @db.Decimal(14, 4)
+  physical_qty       Decimal  @db.Decimal(14, 4)
+  difference_qty     Decimal  @db.Decimal(14, 4)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now())
+
+  adjustment StockAdjustment @relation(fields: [adjustment_id], references: [id], onDelete: Cascade)
+  variant    ProductVariant  @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([adjustment_id])
+  @@map("stock_adjustment_items")
+}
+
+model StockTransfer {
+  id             String              @id @default(uuid()) @db.Uuid
+  business_id    String              @db.Uuid
+  from_branch_id String              @db.Uuid
+  to_branch_id   String              @db.Uuid
+  transfer_no    String
+  status         StockTransferStatus @default(PENDING)
+  dispatched_at  DateTime?
+  received_at    DateTime?
+  dispatched_by  String?             @db.Uuid
+  received_by    String?             @db.Uuid
+  notes          String?
+  created_at     DateTime            @default(now())
+  updated_at     DateTime            @updatedAt
+
+  business    Business            @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  from_branch Branch              @relation("TransfersSent", fields: [from_branch_id], references: [id], onDelete: Restrict)
+  to_branch   Branch              @relation("TransfersReceived", fields: [to_branch_id], references: [id], onDelete: Restrict)
+  items       StockTransferItem[]
+
+  @@unique([business_id, transfer_no])
+  @@index([business_id, from_branch_id, status])
+  @@index([business_id, to_branch_id, status])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  transfer_id        String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  sent_qty           Decimal  @db.Decimal(14, 4)
+  received_qty       Decimal  @default(0) @db.Decimal(14, 4)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now())
+
+  transfer StockTransfer  @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([transfer_id])
+  @@map("stock_transfer_items")
+}
+
+model Stocktake {
+  id           String          @id @default(uuid()) @db.Uuid
+  business_id  String          @db.Uuid
+  branch_id    String          @db.Uuid
+  stocktake_no String
+  status       StocktakeStatus @default(IN_PROGRESS)
+  started_at   DateTime        @default(now())
+  completed_at DateTime?
+  started_by   String          @db.Uuid
+  completed_by String?         @db.Uuid
+  notes        String?
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  business Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  items    StocktakeItem[]
+
+  @@unique([business_id, branch_id, stocktake_no])
+  @@index([business_id, branch_id, status])
+  @@map("stocktakes")
+}
+
+model StocktakeItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  stocktake_id       String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  system_qty         Decimal  @db.Decimal(14, 4)
+  counted_qty        Decimal  @db.Decimal(14, 4)
+  discrepancy_qty    Decimal  @db.Decimal(14, 4)
+  created_at         DateTime @default(now())
+
+  stocktake Stocktake      @relation(fields: [stocktake_id], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([stocktake_id])
+  @@map("stocktake_items")
+}
+
+model DamagedStock {
+  id                 String       @id @default(uuid()) @db.Uuid
+  business_id        String       @db.Uuid
+  branch_id          String       @db.Uuid
+  damage_no          String
+  product_variant_id String       @db.Uuid
+  quantity           Decimal      @db.Decimal(14, 4)
+  unit_cost          Decimal      @db.Decimal(18, 2)
+  total_loss         Decimal      @db.Decimal(18, 2)
+  reason             String
+  status             DamageStatus @default(PENDING)
+  reported_by        String       @db.Uuid
+  approved_by        String?      @db.Uuid
+  created_at         DateTime     @default(now())
+  updated_at         DateTime     @updatedAt
+
+  business Business       @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch         @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@unique([business_id, branch_id, damage_no])
+  @@index([business_id, branch_id, status])
+  @@map("damaged_stock")
+}
+
+// ============================================================================
+// GROUP 5: PURCHASING MODELS
+// ============================================================================
+
+model Supplier {
+  id              String    @id @default(uuid()) @db.Uuid
+  business_id     String    @db.Uuid
+  name            String
+  code            String
+  company_name    String?
+  phone           String
+  email           String?
+  address         String?
+  city            String?
+  opening_balance Decimal   @default(0) @db.Decimal(18, 2)
+  current_balance Decimal   @default(0) @db.Decimal(18, 2)
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  business          Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  purchase_orders   PurchaseOrder[]
+  purchases         Purchase[]
+  purchase_returns  PurchaseReturn[]
+  supplier_payments SupplierPayment[]
+
+  @@unique([business_id, code])
+  @@index([business_id, name])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id                String    @id @default(uuid()) @db.Uuid
+  business_id       String    @db.Uuid
+  branch_id         String    @db.Uuid
+  supplier_id       String    @db.Uuid
+  po_no             String
+  order_date        DateTime  @default(now())
+  expected_delivery DateTime?
+  status            POStatus  @default(DRAFT)
+  total_amount      Decimal   @db.Decimal(18, 2)
+  notes             String?
+  created_by        String    @db.Uuid
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  business  Business            @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch    Branch              @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  supplier  Supplier            @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  items     PurchaseOrderItem[]
+  purchases Purchase[]
+
+  @@unique([business_id, branch_id, po_no])
+  @@index([business_id, branch_id, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  purchase_order_id  String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  quantity           Decimal  @db.Decimal(14, 4)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  total_amount       Decimal  @db.Decimal(18, 2)
+  received_quantity  Decimal  @default(0) @db.Decimal(14, 4)
+  created_at         DateTime @default(now())
+
+  purchase_order PurchaseOrder  @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  variant        ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([purchase_order_id])
+  @@map("purchase_order_items")
+}
+
+model Purchase {
+  id                  String         @id @default(uuid()) @db.Uuid
+  business_id         String         @db.Uuid
+  branch_id           String         @db.Uuid
+  supplier_id         String         @db.Uuid
+  purchase_order_id   String?        @db.Uuid
+  purchase_no         String
+  supplier_invoice_no String?
+  purchase_date       DateTime       @default(now())
+  subtotal            Decimal        @db.Decimal(18, 2)
+  discount_amount     Decimal        @default(0) @db.Decimal(18, 2)
+  tax_amount          Decimal        @default(0) @db.Decimal(18, 2)
+  shipping_cost       Decimal        @default(0) @db.Decimal(18, 2)
+  total_amount        Decimal        @db.Decimal(18, 2)
+  paid_amount         Decimal        @default(0) @db.Decimal(18, 2)
+  due_amount          Decimal        @default(0) @db.Decimal(18, 2)
+  status              PurchaseStatus @default(RECEIVED)
+  notes               String?
+  created_by          String         @db.Uuid
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
+
+  business         Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch           Branch            @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  supplier         Supplier          @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  purchase_order   PurchaseOrder?    @relation(fields: [purchase_order_id], references: [id], onDelete: SetNull)
+  items            PurchaseItem[]
+  purchase_returns PurchaseReturn[]
+  payments         SupplierPayment[]
+  product_units    ProductUnit[]
+
+  @@unique([business_id, branch_id, purchase_no])
+  @@index([business_id, branch_id, status])
+  @@index([business_id, supplier_id])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  purchase_id        String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  quantity           Decimal  @db.Decimal(14, 4)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  total_amount       Decimal  @db.Decimal(18, 2)
+  vat_percentage     Decimal  @default(0) @db.Decimal(5, 2)
+  created_at         DateTime @default(now())
+
+  purchase Purchase       @relation(fields: [purchase_id], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([purchase_id])
+  @@map("purchase_items")
+}
+
+model PurchaseReturn {
+  id           String       @id @default(uuid()) @db.Uuid
+  business_id  String       @db.Uuid
+  branch_id    String       @db.Uuid
+  supplier_id  String       @db.Uuid
+  purchase_id  String?      @db.Uuid
+  return_no    String
+  return_date  DateTime     @default(now())
+  total_amount Decimal      @db.Decimal(18, 2)
+  status       ReturnStatus @default(COMPLETED)
+  reason       String?
+  created_by   String       @db.Uuid
+  created_at   DateTime     @default(now())
+  updated_at   DateTime     @updatedAt
+
+  business Business             @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch               @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  supplier Supplier             @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  purchase Purchase?            @relation(fields: [purchase_id], references: [id], onDelete: SetNull)
+  items    PurchaseReturnItem[]
+
+  @@unique([business_id, branch_id, return_no])
+  @@index([business_id, branch_id, status])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  purchase_return_id String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  quantity           Decimal  @db.Decimal(14, 4)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  total_amount       Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now())
+
+  purchase_return PurchaseReturn @relation(fields: [purchase_return_id], references: [id], onDelete: Cascade)
+  variant         ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([purchase_return_id])
+  @@map("purchase_return_items")
+}
+
+model SupplierPayment {
+  id                 String        @id @default(uuid()) @db.Uuid
+  business_id        String        @db.Uuid
+  branch_id          String        @db.Uuid
+  supplier_id        String        @db.Uuid
+  purchase_id        String?       @db.Uuid
+  payment_account_id String?       @db.Uuid
+  payment_no         String
+  amount             Decimal       @db.Decimal(18, 2)
+  payment_method     PaymentMethod @default(BANK)
+  reference_no       String?
+  payment_date       DateTime      @default(now())
+  notes              String?
+  created_by         String        @db.Uuid
+  created_at         DateTime      @default(now())
+
+  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch          Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  supplier        Supplier        @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  purchase        Purchase?       @relation(fields: [purchase_id], references: [id], onDelete: SetNull)
+  payment_account PaymentAccount? @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+
+  @@unique([business_id, branch_id, payment_no])
+  @@index([business_id, supplier_id])
+  @@map("supplier_payments")
+}
+
+// ============================================================================
+// GROUP 6: SALES MODELS
+// ============================================================================
+
+model Customer {
+  id             String    @id @default(uuid()) @db.Uuid
+  business_id    String    @db.Uuid
+  name           String
+  phone          String
+  email          String?
+  address        String?
+  opening_due    Decimal   @default(0) @db.Decimal(18, 2)
+  current_due    Decimal   @default(0) @db.Decimal(18, 2)
+  credit_limit   Decimal   @default(0) @db.Decimal(18, 2)
+  loyalty_points Int       @default(0)
+  is_active      Boolean   @default(true)
+  deleted_at     DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  sales           Sale[]
+  held_sales      HeldSale[]
+  sales_returns   SalesReturn[]
+  due_collections DueCollection[]
+
+  @@unique([business_id, phone])
+  @@index([business_id, name])
+  @@index([business_id, phone])
+  @@map("customers")
+}
+
+model Sale {
+  id                  String     @id @default(uuid()) @db.Uuid
+  business_id         String     @db.Uuid
+  branch_id           String     @db.Uuid
+  customer_id         String?    @db.Uuid
+  cash_register_id    String?    @db.Uuid
+  register_session_id String?    @db.Uuid
+  invoice_no          String
+  idempotency_key     String
+  sale_type           SaleType   @default(RETAIL)
+  status              SaleStatus @default(COMPLETED)
+  sale_date           DateTime   @default(now())
+  subtotal            Decimal    @db.Decimal(18, 2)
+  discount_amount     Decimal    @default(0) @db.Decimal(18, 2)
+  coupon_id           String?    @db.Uuid
+  tax_amount          Decimal    @default(0) @db.Decimal(18, 2)
+  round_off           Decimal    @default(0) @db.Decimal(18, 2)
+  total_amount        Decimal    @db.Decimal(18, 2)
+  paid_amount         Decimal    @default(0) @db.Decimal(18, 2)
+  due_amount          Decimal    @default(0) @db.Decimal(18, 2)
+  change_amount       Decimal    @default(0) @db.Decimal(18, 2)
+  total_cost          Decimal    @default(0) @db.Decimal(18, 2)
+  is_offline          Boolean    @default(false)
+  synced_at           DateTime?
+  voided_at           DateTime?
+  void_reason         String?
+  created_by          String     @db.Uuid
+  updated_by          String?    @db.Uuid
+  created_at          DateTime   @default(now())
+  updated_at          DateTime   @updatedAt
+
+  business          Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch            Branch           @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  customer          Customer?        @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  cash_register     CashRegister?    @relation(fields: [cash_register_id], references: [id], onDelete: SetNull)
+  register_session  RegisterSession? @relation(fields: [register_session_id], references: [id], onDelete: SetNull)
+  coupon            Coupon?          @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
+  items             SaleItem[]
+  payments          SalePayment[]
+  returns           SalesReturn[]
+  original_exchange Exchange[]       @relation("OriginalSaleExchanges")
+  new_exchange      Exchange?        @relation("NewSaleExchange")
+  sold_units        ProductUnit[]    @relation("SoldUnits")
+
+  @@unique([business_id, branch_id, invoice_no])
+  @@unique([business_id, idempotency_key])
+  @@index([business_id, branch_id, sale_date])
+  @@index([business_id, status])
+  @@index([business_id, customer_id])
+  @@map("sales")
+}
+
+model SaleItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  sale_id            String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  product_unit_id    String?  @db.Uuid
+  quantity           Decimal  @db.Decimal(14, 4)
+  unit_price         Decimal  @db.Decimal(18, 2)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  discount_amount    Decimal  @default(0) @db.Decimal(18, 2)
+  tax_amount         Decimal  @default(0) @db.Decimal(18, 2)
+  total_amount       Decimal  @db.Decimal(18, 2)
+  total_cost         Decimal  @db.Decimal(18, 2)
+  returned_qty       Decimal  @default(0) @db.Decimal(14, 4)
+  created_at         DateTime @default(now())
+
+  sale               Sale              @relation(fields: [sale_id], references: [id], onDelete: Cascade)
+  variant            ProductVariant    @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+  product_unit       ProductUnit?      @relation(fields: [product_unit_id], references: [id], onDelete: SetNull)
+  sales_return_items SalesReturnItem[]
+  exchange_items     ExchangeItem[]
+
+  @@index([sale_id])
+  @@index([product_variant_id])
+  @@index([product_unit_id])
+  @@map("sale_items")
+}
+
+model SalePayment {
+  id                  String        @id @default(uuid()) @db.Uuid
+  business_id         String        @db.Uuid
+  branch_id           String        @db.Uuid
+  sale_id             String        @db.Uuid
+  payment_account_id  String?       @db.Uuid
+  register_session_id String?       @db.Uuid
+  idempotency_key     String
+  payment_method      PaymentMethod @default(CASH)
+  amount              Decimal       @db.Decimal(18, 2)
+  transaction_no      String?
+  payment_date        DateTime      @default(now())
+  created_by          String        @db.Uuid
+  created_at          DateTime      @default(now())
+
+  business         Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch           Branch           @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  sale             Sale             @relation(fields: [sale_id], references: [id], onDelete: Cascade)
+  payment_account  PaymentAccount?  @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  register_session RegisterSession? @relation(fields: [register_session_id], references: [id], onDelete: SetNull)
+
+  @@unique([business_id, idempotency_key])
+  @@index([business_id, branch_id, payment_date])
+  @@index([sale_id])
+  @@map("sale_payments")
+}
+
+model HeldSale {
+  id             String   @id @default(uuid()) @db.Uuid
+  business_id    String   @db.Uuid
+  branch_id      String   @db.Uuid
+  customer_id    String?  @db.Uuid
+  reference_name String
+  subtotal       Decimal  @db.Decimal(18, 2)
+  held_at        DateTime @default(now())
+  created_by     String   @db.Uuid
+  is_retrieved   Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  business Business       @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch         @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  customer Customer?      @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  items    HeldSaleItem[]
+
+  @@index([business_id, branch_id, is_retrieved])
+  @@map("held_sales")
+}
+
+model HeldSaleItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  held_sale_id       String   @db.Uuid
+  product_variant_id String   @db.Uuid
+  quantity           Decimal  @db.Decimal(14, 4)
+  unit_price         Decimal  @db.Decimal(18, 2)
+  discount_amount    Decimal  @default(0) @db.Decimal(18, 2)
+  total_amount       Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now())
+
+  held_sale HeldSale       @relation(fields: [held_sale_id], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([held_sale_id])
+  @@map("held_sale_items")
+}
+
+model SalesReturn {
+  id                  String       @id @default(uuid()) @db.Uuid
+  business_id         String       @db.Uuid
+  branch_id           String       @db.Uuid
+  sale_id             String       @db.Uuid
+  customer_id         String?      @db.Uuid
+  payment_account_id  String?      @db.Uuid
+  return_no           String
+  idempotency_key     String
+  total_refund_amount Decimal      @db.Decimal(18, 2)
+  refund_method       RefundMethod @default(CASH)
+  status              ReturnStatus @default(COMPLETED)
+  reason              String?
+  created_by          String       @db.Uuid
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  business        Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch          Branch            @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  sale            Sale              @relation(fields: [sale_id], references: [id], onDelete: Restrict)
+  customer        Customer?         @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  payment_account PaymentAccount?   @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  items           SalesReturnItem[]
+  exchange        Exchange?         @relation("ReturnExchange")
+
+  @@unique([business_id, branch_id, return_no])
+  @@unique([business_id, idempotency_key])
+  @@index([business_id, branch_id])
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id                 String        @id @default(uuid()) @db.Uuid
+  sales_return_id    String        @db.Uuid
+  sale_item_id       String        @db.Uuid
+  product_variant_id String        @db.Uuid
+  quantity           Decimal       @db.Decimal(14, 4)
+  refund_price       Decimal       @db.Decimal(18, 2)
+  unit_cost          Decimal       @db.Decimal(18, 2)
+  total_refund       Decimal       @db.Decimal(18, 2)
+  condition          ItemCondition @default(RESELLABLE)
+  created_at         DateTime      @default(now())
+
+  sales_return SalesReturn    @relation(fields: [sales_return_id], references: [id], onDelete: Cascade)
+  sale_item    SaleItem       @relation(fields: [sale_item_id], references: [id], onDelete: Restrict)
+  variant      ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([sales_return_id])
+  @@map("sales_return_items")
+}
+
+model Exchange {
+  id                String             @id @default(uuid()) @db.Uuid
+  business_id       String             @db.Uuid
+  branch_id         String             @db.Uuid
+  original_sale_id  String             @db.Uuid
+  sales_return_id   String             @unique @db.Uuid
+  new_sale_id       String             @unique @db.Uuid
+  exchange_no       String
+  idempotency_key   String
+  returned_total    Decimal            @db.Decimal(18, 2)
+  new_items_total   Decimal            @db.Decimal(18, 2)
+  difference_amount Decimal            @db.Decimal(18, 2)
+  adjustment_status ExchangeDiffStatus @default(EVEN)
+  created_by        String             @db.Uuid
+  created_at        DateTime           @default(now())
+  updated_at        DateTime           @updatedAt
+
+  business      Business       @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch        Branch         @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  original_sale Sale           @relation("OriginalSaleExchanges", fields: [original_sale_id], references: [id], onDelete: Restrict)
+  sales_return  SalesReturn    @relation("ReturnExchange", fields: [sales_return_id], references: [id], onDelete: Restrict)
+  new_sale      Sale           @relation("NewSaleExchange", fields: [new_sale_id], references: [id], onDelete: Restrict)
+  items         ExchangeItem[]
+
+  @@unique([business_id, branch_id, exchange_no])
+  @@unique([business_id, idempotency_key])
+  @@index([business_id, branch_id])
+  @@map("exchanges")
+}
+
+model ExchangeItem {
+  id                 String           @id @default(uuid()) @db.Uuid
+  exchange_id        String           @db.Uuid
+  type               ExchangeItemType
+  sale_item_id       String?          @db.Uuid
+  product_variant_id String           @db.Uuid
+  quantity           Decimal          @db.Decimal(14, 4)
+  unit_price         Decimal          @db.Decimal(18, 2)
+  total_amount       Decimal          @db.Decimal(18, 2)
+  created_at         DateTime         @default(now())
+
+  exchange  Exchange       @relation(fields: [exchange_id], references: [id], onDelete: Cascade)
+  sale_item SaleItem?      @relation(fields: [sale_item_id], references: [id], onDelete: SetNull)
+  variant   ProductVariant @relation(fields: [product_variant_id], references: [id], onDelete: Restrict)
+
+  @@index([exchange_id])
+  @@map("exchange_items")
+}
+
+model DueCollection {
+  id                 String        @id @default(uuid()) @db.Uuid
+  business_id        String        @db.Uuid
+  branch_id          String        @db.Uuid
+  customer_id        String        @db.Uuid
+  payment_account_id String?       @db.Uuid
+  collection_no      String
+  idempotency_key    String
+  amount             Decimal       @db.Decimal(18, 2)
+  payment_method     PaymentMethod @default(CASH)
+  transaction_no     String?
+  receipt_date       DateTime      @default(now())
+  notes              String?
+  created_by         String        @db.Uuid
+  created_at         DateTime      @default(now())
+
+  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch          Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  customer        Customer        @relation(fields: [customer_id], references: [id], onDelete: Restrict)
+  payment_account PaymentAccount? @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+
+  @@unique([business_id, branch_id, collection_no])
+  @@unique([business_id, idempotency_key])
+  @@index([business_id, customer_id])
+  @@map("due_collections")
+}
+
+model Discount {
+  id                  String       @id @default(uuid()) @db.Uuid
+  business_id         String       @db.Uuid
+  name                String
+  code                String?
+  type                DiscountType @default(PERCENTAGE)
+  value               Decimal      @db.Decimal(18, 2)
+  min_purchase_amount Decimal?     @db.Decimal(18, 2)
+  max_discount_amount Decimal?     @db.Decimal(18, 2)
+  starts_at           DateTime
+  ends_at             DateTime
+  is_active           Boolean      @default(true)
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  coupons  Coupon[]
+
+  @@index([business_id, is_active])
+  @@map("discounts")
+}
+
+model Coupon {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String   @db.Uuid
+  discount_id String   @db.Uuid
+  code        String
+  usage_limit Int?
+  usage_count Int      @default(0)
+  is_active   Boolean  @default(true)
+  expires_at  DateTime
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  discount Discount @relation(fields: [discount_id], references: [id], onDelete: Cascade)
+  sales    Sale[]
+
+  @@unique([business_id, code])
+  @@map("coupons")
+}
+
+// ============================================================================
+// GROUP 7: CASH MODELS
+// ============================================================================
+
+model CashRegister {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String   @db.Uuid
+  branch_id   String   @db.Uuid
+  name        String
+  code        String
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch            @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  sessions RegisterSession[]
+  sales    Sale[]
+
+  @@unique([business_id, branch_id, code])
+  @@map("cash_registers")
+}
+
+model RegisterSession {
+  id               String        @id @default(uuid()) @db.Uuid
+  business_id      String        @db.Uuid
+  branch_id        String        @db.Uuid
+  cash_register_id String        @db.Uuid
+  user_id          String        @db.Uuid
+  opening_balance  Decimal       @db.Decimal(18, 2)
+  closing_balance  Decimal?      @db.Decimal(18, 2)
+  expected_balance Decimal?      @db.Decimal(18, 2)
+  discrepancy      Decimal?      @db.Decimal(18, 2)
+  opened_at        DateTime      @default(now())
+  closed_at        DateTime?
+  status           SessionStatus @default(OPEN)
+  closing_notes    String?
+  created_at       DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+
+  business       Business       @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch         Branch         @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  cash_register  CashRegister   @relation(fields: [cash_register_id], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  cash_movements CashMovement[]
+  sales          Sale[]
+  sale_payments  SalePayment[]
+
+  @@index([business_id, branch_id, status])
+  @@map("register_sessions")
+}
+
+model CashMovement {
+  id                  String           @id @default(uuid()) @db.Uuid
+  business_id         String           @db.Uuid
+  branch_id           String           @db.Uuid
+  register_session_id String           @db.Uuid
+  type                CashMovementType
+  amount              Decimal          @db.Decimal(18, 2)
+  reason              String
+  performed_by        String           @db.Uuid
+  created_at          DateTime         @default(now())
+
+  business         Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch           Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  register_session RegisterSession @relation(fields: [register_session_id], references: [id], onDelete: Cascade)
+
+  @@index([register_session_id])
+  @@map("cash_movements")
+}
+
+// ============================================================================
+// GROUP 8: ACCOUNTING MODELS
+// ============================================================================
+
+model ChartOfAccount {
+  id            String      @id @default(uuid()) @db.Uuid
+  business_id   String      @db.Uuid
+  account_code  String
+  account_name  String
+  type          AccountType
+  subtype       String?
+  parent_id     String?     @db.Uuid
+  is_reconciled Boolean     @default(false)
+  is_system     Boolean     @default(false)
+  is_active     Boolean     @default(true)
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @updatedAt
+
+  business           Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  parent             ChartOfAccount?   @relation("AccountHierarchy", fields: [parent_id], references: [id], onDelete: Restrict)
+  children           ChartOfAccount[]  @relation("AccountHierarchy")
+  journal_lines      JournalLine[]
+  payment_accounts   PaymentAccount[]
+  expense_categories ExpenseCategory[]
+
+  @@unique([business_id, account_code])
+  @@index([business_id, type])
+  @@map("chart_of_accounts")
+}
+
+model JournalEntry {
+  id                String         @id @default(uuid()) @db.Uuid
+  business_id       String         @db.Uuid
+  branch_id         String         @db.Uuid
+  fiscal_period_id  String?        @db.Uuid
+  entry_no          String
+  entry_date        DateTime       @default(now())
+  reference_type    JournalRefType @default(MANUAL)
+  reference_id      String?        @db.Uuid
+  description       String
+  total_debit       Decimal        @db.Decimal(18, 2)
+  total_credit      Decimal        @db.Decimal(18, 2)
+  status            JournalStatus  @default(POSTED)
+  is_posted         Boolean        @default(true)
+  posted_at         DateTime?      @default(now())
+  posted_by         String?        @db.Uuid
+  reversed_entry_id String?        @unique @db.Uuid
+  created_by        String         @db.Uuid
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+
+  business        Business      @relation(fields: [business_id], references: [id], onDelete: Restrict)
+  branch          Branch        @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  fiscal_period   FiscalPeriod? @relation(fields: [fiscal_period_id], references: [id], onDelete: SetNull)
+  reversed_entry  JournalEntry? @relation("ReversedEntries", fields: [reversed_entry_id], references: [id], onDelete: Restrict)
+  reversing_entry JournalEntry? @relation("ReversedEntries")
+  lines           JournalLine[]
+
+  @@unique([business_id, branch_id, entry_no])
+  @@index([business_id, branch_id, entry_date])
+  @@index([business_id, reference_type, reference_id])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id               String   @id @default(uuid()) @db.Uuid
+  journal_entry_id String   @db.Uuid
+  account_id       String   @db.Uuid
+  description      String?
+  debit            Decimal  @default(0) @db.Decimal(18, 2)
+  credit           Decimal  @default(0) @db.Decimal(18, 2)
+  created_at       DateTime @default(now())
+
+  journal_entry JournalEntry   @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade)
+  account       ChartOfAccount @relation(fields: [account_id], references: [id], onDelete: Restrict)
+
+  @@index([journal_entry_id])
+  @@index([account_id])
+  @@map("journal_lines")
+}
+
+model FiscalPeriod {
+  id          String    @id @default(uuid()) @db.Uuid
+  business_id String    @db.Uuid
+  name        String
+  start_date  DateTime
+  end_date    DateTime
+  is_closed   Boolean   @default(false)
+  closed_at   DateTime?
+  closed_by   String?   @db.Uuid
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  business        Business       @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  journal_entries JournalEntry[]
+
+  @@unique([business_id, name])
+  @@map("fiscal_periods")
+}
+
+model PaymentAccount {
+  id                  String             @id @default(uuid()) @db.Uuid
+  business_id         String             @db.Uuid
+  branch_id           String?            @db.Uuid
+  chart_of_account_id String             @db.Uuid
+  name                String
+  account_type        PaymentAccountType @default(CASH)
+  account_number      String?
+  bank_name           String?
+  branch_name         String?
+  current_balance     Decimal            @default(0) @db.Decimal(18, 2)
+  is_active           Boolean            @default(true)
+  created_at          DateTime           @default(now())
+  updated_at          DateTime           @updatedAt
+
+  business          Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch            Branch?           @relation(fields: [branch_id], references: [id], onDelete: SetNull)
+  chart_of_account  ChartOfAccount    @relation(fields: [chart_of_account_id], references: [id], onDelete: Restrict)
+  supplier_payments SupplierPayment[]
+  sale_payments     SalePayment[]
+  sales_returns     SalesReturn[]
+  due_collections   DueCollection[]
+  expenses          Expense[]
+
+  @@index([business_id, account_type])
+  @@map("payment_accounts")
+}
+
+model ExpenseCategory {
+  id                  String   @id @default(uuid()) @db.Uuid
+  business_id         String   @db.Uuid
+  chart_of_account_id String?  @db.Uuid
+  name                String
+  code                String
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  business         Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  chart_of_account ChartOfAccount? @relation(fields: [chart_of_account_id], references: [id], onDelete: SetNull)
+  expenses         Expense[]
+
+  @@unique([business_id, code])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id                  String   @id @default(uuid()) @db.Uuid
+  business_id         String   @db.Uuid
+  branch_id           String   @db.Uuid
+  expense_category_id String   @db.Uuid
+  payment_account_id  String?  @db.Uuid
+  expense_no          String
+  amount              Decimal  @db.Decimal(18, 2)
+  tax_amount          Decimal  @default(0) @db.Decimal(18, 2)
+  total_amount        Decimal  @db.Decimal(18, 2)
+  expense_date        DateTime @default(now())
+  vendor_name         String?
+  receipt_no          String?
+  description         String?
+  created_by          String   @db.Uuid
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch          Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  category        ExpenseCategory @relation(fields: [expense_category_id], references: [id], onDelete: Restrict)
+  payment_account PaymentAccount? @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+
+  @@unique([business_id, branch_id, expense_no])
+  @@index([business_id, branch_id, expense_date])
+  @@map("expenses")
+}
+
+// ============================================================================
+// GROUP 9: SUPPORT & SYSTEM MODELS
+// ============================================================================
+
+model InvoiceSequence {
+  id                  String       @id @default(uuid()) @db.Uuid
+  business_id         String       @db.Uuid
+  branch_id           String       @db.Uuid
+  sequence_type       SequenceType
+  prefix              String
+  next_number         Int          @default(1)
+  current_fiscal_year String?
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+
+  @@unique([business_id, branch_id, sequence_type])
+  @@map("invoice_sequences")
+}
+
+model Notification {
+  id          String           @id @default(uuid()) @db.Uuid
+  business_id String           @db.Uuid
+  branch_id   String?          @db.Uuid
+  user_id     String?          @db.Uuid
+  title       String
+  message     String
+  type        NotificationType @default(SYSTEM_ALERT)
+  is_read     Boolean          @default(false)
+  created_at  DateTime         @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch?  @relation(fields: [branch_id], references: [id], onDelete: SetNull)
+  user     User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([business_id, user_id, is_read])
+  @@map("notifications")
+}
+
+model SmsLog {
+  id              String     @id @default(uuid()) @db.Uuid
+  business_id     String     @db.Uuid
+  branch_id       String?    @db.Uuid
+  recipient_phone String
+  sender_id       String?
+  message_body    String
+  provider_ref    String?
+  status          SmsStatus  @default(PENDING)
+  purpose         SmsPurpose @default(SALE_INVOICE)
+  cost            Decimal    @default(0) @db.Decimal(8, 4)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch?  @relation(fields: [branch_id], references: [id], onDelete: SetNull)
+
+  @@index([business_id, recipient_phone])
+  @@map("sms_logs")
+}
+
+model AuditLog {
+  id           String      @id @default(uuid()) @db.Uuid
+  business_id  String      @db.Uuid
+  branch_id    String?     @db.Uuid
+  user_id      String?     @db.Uuid
+  action       AuditAction
+  entity_table String
+  entity_id    String
+  old_values   Json?
+  new_values   Json?
+  ip_address   String?
+  user_agent   String?
+  created_at   DateTime    @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch?  @relation(fields: [branch_id], references: [id], onDelete: SetNull)
+  user     User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([business_id, entity_table, entity_id])
+  @@index([business_id, created_at])
+  @@map("audit_logs")
+}
+
+model IdempotencyKey {
+  id               String            @id @default(uuid()) @db.Uuid
+  business_id      String            @db.Uuid
+  key              String
+  resource_type    String
+  resource_id      String?
+  request_hash     String
+  response_payload Json?
+  status           IdempotencyStatus @default(IN_PROGRESS)
+  expires_at       DateTime
+  created_at       DateTime          @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@unique([business_id, key])
+  @@index([business_id, expires_at])
+  @@map("idempotency_keys")
+}
+
+model Attachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  business_id String   @db.Uuid
+  entity_type String
+  entity_id   String
+  file_name   String
+  file_path   String
+  file_size   Int
+  mime_type   String
+  uploaded_by String   @db.Uuid
+  created_at  DateTime @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, entity_type, entity_id])
+  @@map("attachments")
+}
+
+model SyncQueue {
+  id             String     @id @default(uuid()) @db.Uuid
+  business_id    String     @db.Uuid
+  branch_id      String     @db.Uuid
+  client_sync_id String
+  entity_type    String
+  payload        Json
+  status         SyncStatus @default(PENDING)
+  retry_count    Int        @default(0)
+  error_message  String?
+  processed_at   DateTime?
+  created_at     DateTime   @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+
+  @@unique([business_id, branch_id, client_sync_id])
+  @@index([business_id, branch_id, status])
+  @@map("sync_queue")
 }
