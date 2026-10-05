@@ -327,3 +327,279 @@ x-branch-id: <branch-uuid>
 1. Verify the branch belongs to the user's business and is active.
 2. Confirm the user has access to that branch in `UserBranchAccess` (or is the business owner).
 3. Attach `{ businessId, userId, branchId, isAllBranchAdmin }` to the request object.
+
+---
+
+## PHASE 2: CATALOG MODULE
+
+The Catalog Module provides a multi-branch garment retail catalog with branch-scoped visibility, variants matrix, inventory tracking, Code 128 barcodes, and custom price lists.
+
+### Phase 2 Business Rules
+1. **Branch-Scoped Product Visibility:**
+   - Operational branch users see only products that have an active `ProductBranch` row for their branch.
+   - Admins/owners (`isAllBranchAdmin`) see all products across the business and can filter using `?branchId=`. Each product includes a `branches` array showing where it is active.
+2. **ACID Product Creation:**
+   - Creating a product creates the product, auto-assigns it to the current branch (and optional admin multi-branch list), creates variants, and initializes `StockBalance` records in **one database transaction**.
+3. **Branch Deactivation Stock Protection:**
+   - Deactivating a product in a branch (`is_active = false`) is blocked if that branch still has stock (`StockBalance.quantity > 0`) unless `force = true` is supplied.
+4. **Barcode Printing & Audit:**
+   - Reprints (`REPRINT`) require an audit reason.
+   - Barcode scanning via `GET /api/v1/catalog/barcodes/lookup/:barcode` returns the product if active in the current branch. If it exists in the business but not in this branch, it returns a distinct `PRODUCT_IN_OTHER_BRANCH` code with a list of branches that have stock.
+5. **System Master Data Protection:**
+   - Sizes, Colors, and Units have system rows (`business_id = null`) accessible by all tenants but immutable and protected from tenant modification or deletion.
+
+---
+
+### Phase 2 Endpoints & cURL Examples
+
+#### 1. Master Data (Shared across business)
+
+##### A. Categories (Hierarchical)
+```bash
+# Create category
+curl -X POST http://localhost:4000/api/v1/catalog/categories \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Men'\''s Panjabi",
+    "code": "MENS-PANJABI",
+    "description": "Traditional and festive attire"
+  }'
+
+# List categories
+curl -X GET http://localhost:4000/api/v1/catalog/categories \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+##### B. Brands & Seasons
+```bash
+# Create brand
+curl -X POST http://localhost:4000/api/v1/catalog/brands \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Taaga", "code": "TAAGA" }'
+
+# Create season / collection
+curl -X POST http://localhost:4000/api/v1/catalog/seasons \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Eid Collection 2026", "code": "EID-2026" }'
+```
+
+##### C. Sizes, Colors & Units (Tenant + System)
+```bash
+# List sizes (includes system sizes e.g. S, M, L, XL, XXL)
+curl -X GET http://localhost:4000/api/v1/catalog/sizes \
+  -H "Authorization: Bearer <TOKEN>"
+
+# Create custom size
+curl -X POST http://localhost:4000/api/v1/catalog/sizes \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Semi-Fit 42", "code": "SF-42", "sortOrder": 10 }'
+```
+
+---
+
+#### 2. Products
+
+##### A. Create Product with Variants (Single Transaction)
+```bash
+curl -X POST http://localhost:4000/api/v1/catalog/products \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Premium Embroidered Cotton Panjabi",
+    "code": "PANJ-EMB-01",
+    "categoryId": "<CATEGORY_UUID>",
+    "unitId": "<UNIT_UUID>",
+    "gender": "MEN",
+    "fabric": "100% Combed Cotton Jacquard",
+    "hasVariants": true,
+    "variants": [
+      {
+        "sizeId": "<SIZE_M_UUID>",
+        "colorId": "<COLOR_NAVY_UUID>",
+        "sku": "PANJ-EMB-01-M-NVY",
+        "retailPrice": 2450.00,
+        "wholesalePrice": 1950.00,
+        "costPrice": 1400.00,
+        "reorderLevel": 5
+      },
+      {
+        "sizeId": "<SIZE_L_UUID>",
+        "colorId": "<COLOR_NAVY_UUID>",
+        "sku": "PANJ-EMB-01-L-NVY",
+        "retailPrice": 2450.00,
+        "wholesalePrice": 1950.00,
+        "costPrice": 1400.00,
+        "reorderLevel": 5
+      }
+    ]
+  }'
+```
+
+##### B. List Products with Current Branch Stock & Filters
+```bash
+curl -X GET "http://localhost:4000/api/v1/catalog/products?search=Panjabi&page=1&limit=20" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_BRANCH_UUID>"
+```
+
+##### C. Product Detail
+```bash
+curl -X GET http://localhost:4000/api/v1/catalog/products/<PRODUCT_UUID> \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_BRANCH_UUID>"
+```
+
+---
+
+#### 3. Variants & Bulk Matrix Generator
+
+##### A. Bulk Generate Variants (Sizes x Colors Matrix)
+Generates all combinations in a single transaction with auto-generated SKUs and Code 128 barcodes:
+```bash
+curl -X POST http://localhost:4000/api/v1/catalog/variants/products/<PRODUCT_UUID>/bulk \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sizeIds": ["<SIZE_M_UUID>", "<SIZE_L_UUID>", "<SIZE_XL_UUID>"],
+    "colorIds": ["<COLOR_BLACK_UUID>", "<COLOR_WHITE_UUID>"],
+    "defaultRetailPrice": 2250.00,
+    "defaultWholesalePrice": 1800.00,
+    "defaultCostPrice": 1300.00,
+    "defaultReorderLevel": 5
+  }'
+```
+
+---
+
+#### 4. Product-Branch Management (Admin)
+
+##### A. Activate Product in Another Branch
+```bash
+curl -X POST http://localhost:4000/api/v1/catalog/product-branches/activate \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productId": "<PRODUCT_UUID>",
+    "branchId": "<TARGET_BRANCH_UUID>"
+  }'
+```
+
+##### B. Deactivate Product in a Branch (Protected by Stock Check)
+```bash
+# Standard deactivation (fails if stock > 0)
+curl -X POST http://localhost:4000/api/v1/catalog/product-branches/deactivate \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productId": "<PRODUCT_UUID>",
+    "branchId": "<TARGET_BRANCH_UUID>",
+    "force": false
+  }'
+
+# Force deactivation
+curl -X POST http://localhost:4000/api/v1/catalog/product-branches/deactivate \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productId": "<PRODUCT_UUID>",
+    "branchId": "<TARGET_BRANCH_UUID>",
+    "force": true
+  }'
+```
+
+---
+
+#### 5. Barcode & Scanning
+
+##### A. Log Barcode Print
+```bash
+curl -X POST http://localhost:4000/api/v1/catalog/barcodes/print \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variantId": "<VARIANT_UUID>",
+    "quantity": 10,
+    "printType": "INITIAL_PRINT"
+  }'
+
+# Reprint (requires audit reason)
+curl -X POST http://localhost:4000/api/v1/catalog/barcodes/print \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variantId": "<VARIANT_UUID>",
+    "quantity": 1,
+    "printType": "REPRINT",
+    "reason": "Original customer barcode sticker damaged"
+  }'
+```
+
+##### B. Barcode Lookup (POS Scanner)
+```bash
+curl -X GET http://localhost:4000/api/v1/catalog/barcodes/lookup/881234567890 \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_BRANCH_UUID>"
+```
+**Response when active in current branch:**
+```json
+{
+  "found": true,
+  "activeInCurrentBranch": true,
+  "product": { "id": "...", "name": "Cotton Panjabi", "code": "PANJ-01" },
+  "variant": { "sku": "PANJ-M-NVY", "retailPrice": 2450.00, "stock": 18 }
+}
+```
+**Response when product exists in business, but NOT in this branch:**
+```json
+{
+  "found": true,
+  "activeInCurrentBranch": false,
+  "code": "PRODUCT_IN_OTHER_BRANCH",
+  "message": "This product exists in your business catalog but is not assigned or active in this branch.",
+  "product": { "id": "...", "name": "Cotton Panjabi" },
+  "variant": { "sku": "PANJ-M-NVY", "retailPrice": 2450.00 },
+  "availableBranches": [
+    {
+      "branchId": "5f64d0bb-...",
+      "branchName": "Gulshan Flagship Showroom",
+      "stock": 12
+    }
+  ]
+}
+```
+
+---
+
+#### 6. Custom Price Lists
+
+##### A. Create Price List
+```bash
+curl -X POST http://localhost:4000/api/v1/catalog/price-lists \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Eid Festive Promotional Offer",
+    "code": "EID-OFFER-2026",
+    "type": "FESTIVE_OFFER",
+    "isDefault": false
+  }'
+```
+
+##### B. Set Variant Price Override in Price List
+```bash
+curl -X POST http://localhost:4000/api/v1/catalog/price-lists/<PRICE_LIST_UUID>/items \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variantId": "<VARIANT_UUID>",
+    "price": 2150.00
+  }'
+```
+
