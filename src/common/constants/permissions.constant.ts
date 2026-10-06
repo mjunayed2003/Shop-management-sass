@@ -26,6 +26,7 @@ export const PERMISSIONS = {
   INVENTORY_ADJUST: 'inventory:adjust',
   INVENTORY_TRANSFER: 'inventory:transfer',
   INVENTORY_STOCKTAKE: 'inventory:stocktake',
+  STOCK_APPROVE: 'stock:approve',
   BARCODE_PRINT: 'barcode:print',
   BARCODE_REPRINT: 'barcode:reprint',
 
@@ -93,6 +94,7 @@ export const ALL_SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   { code: PERMISSIONS.INVENTORY_ADJUST, name: 'Adjust Stock', module: 'Inventory', description: 'Can create stock adjustments' },
   { code: PERMISSIONS.INVENTORY_TRANSFER, name: 'Transfer Stock', module: 'Inventory', description: 'Can send and receive branch stock transfers' },
   { code: PERMISSIONS.INVENTORY_STOCKTAKE, name: 'Conduct Stocktake', module: 'Inventory', description: 'Can perform physical stock counts' },
+  { code: PERMISSIONS.STOCK_APPROVE, name: 'Approve Stock Adjustments', module: 'Inventory', description: 'Can approve stock adjustments and damage write-offs' },
   { code: PERMISSIONS.BARCODE_PRINT, name: 'Print Barcode', module: 'Inventory', description: 'Can print Code 128 barcode labels' },
   { code: PERMISSIONS.BARCODE_REPRINT, name: 'Reprint Barcode', module: 'Inventory', description: 'Can reprint barcode labels with audit reason' },
 

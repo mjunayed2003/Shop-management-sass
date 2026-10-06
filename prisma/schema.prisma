@@ -1163,6 +1163,7 @@ model StockTransfer {
   from_branch_id String              @db.Uuid
   to_branch_id   String              @db.Uuid
   transfer_no    String
+  idempotency_key String?
   status         StockTransferStatus @default(PENDING)
   dispatched_at  DateTime?
   received_at    DateTime?
@@ -1178,6 +1179,7 @@ model StockTransfer {
   items       StockTransferItem[]
 
   @@unique([business_id, transfer_no])
+  @@unique([business_id, idempotency_key])
   @@index([business_id, from_branch_id, status])
   @@index([business_id, to_branch_id, status])
   @@map("stock_transfers")

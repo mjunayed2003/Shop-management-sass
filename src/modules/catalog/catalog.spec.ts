@@ -238,8 +238,8 @@ describe('Phase 2: Catalog Module Unit Tests', () => {
       expect(res.activeInCurrentBranch).toBe(false);
       expect(res.code).toBe('PRODUCT_IN_OTHER_BRANCH');
       expect(res.availableBranches).toHaveLength(1);
-      expect(res.availableBranches[0].branchId).toBe(branch2Id);
-      expect(res.availableBranches[0].stock).toBe(14);
+      expect(res.availableBranches![0].branchId).toBe(branch2Id);
+      expect(res.availableBranches![0].stock).toBe(14);
     });
 
     it('should return active product details when scanned in active branch', async () => {
@@ -368,7 +368,7 @@ describe('Phase 2: Catalog Module Unit Tests', () => {
         true, // force = true
       );
 
-      expect(res.productBranch.is_active).toBe(false);
+      expect(res.productBranch?.is_active).toBe(false);
       expect(mockPrisma.productBranch.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { is_active: false },

@@ -23,7 +23,7 @@ export class BarcodeService {
         deleted_at: null,
       },
       include: {
-        product: { select: { id: true, name: true, code: true, currency: false } },
+        product: { select: { id: true, name: true, code: true } },
         size: { select: { id: true, name: true, code: true } },
         color: { select: { id: true, name: true, code: true } },
       },

@@ -603,3 +603,379 @@ curl -X POST http://localhost:4000/api/v1/catalog/price-lists/<PRICE_LIST_UUID>/
   }'
 ```
 
+---
+
+## Phase 3 - Purchasing & Inventory Management
+
+### Core Business Rules & Architecture Implemented
+
+1. **Single Entry Point for Stock Changes (`StockService.applyMovement`)**:
+   - `StockBalance` is modified **exclusively** through `StockService.applyMovement`.
+   - Every stock update acquires a pessimistic row lock via PostgreSQL `SELECT ... FOR UPDATE` inside an ongoing Prisma transaction.
+   - Negative stock is blocked by default (`INSUFFICIENT_STOCK` error code), respecting `allocated_quantity` (`available = quantity - allocated_quantity`).
+   - `StockMovement` rows are immutably logged with `new_wac` and signed quantities.
+2. **Weighted Average Cost (WAC)**:
+   - On stock-in (`OPENING`, `PURCHASE`, `TRANSFER_IN`, `SALE_RETURN`, `ADJUSTMENT_POSITIVE`):
+     $$\text{avg\_cost\_price} = \frac{\text{old\_value} + (\text{in\_qty} \times \text{unit\_cost})}{\text{old\_qty} + \text{in\_qty}}$$
+   - On stock-out: unit cost stays at current `avg_cost_price`, and `total_cost_value = quantity \times avg_cost_price`.
+   - All calculations use Prisma `Decimal` (zero floating-point math).
+3. **Automatic Product Branch Visibility**:
+   - Every stock-in automatically invokes `ProductBranchService.ensureProductInBranch` to make the product visible and active in that branch.
+4. **Low Stock Notifications**:
+   - When available quantity drops below `variant.reorder_level` after a stock-out, a `LOW_STOCK` notification is created for the branch (deduplicated against unread notifications).
+5. **Suppliers & Supplier Ledger**:
+   - Suppliers are business-wide (`@OptionalBranch()`).
+   - Running balance formula: $\text{current\_balance} = \text{opening\_balance} + \text{purchases} - \text{returns} - \text{payments}$.
+6. **Purchases (Goods Receipt)**:
+   - Atomic execution in a single transaction: `purchase_no` via `InvoiceSequence`, items, stock movements, supplier due updates, optional `SupplierPayment` (when `paidAmount > 0`), and optional `PurchaseOrder` fulfillment.
+   - Landed cost flag (`landedCost=true`): proportionally allocates net overhead (`shippingCost - discountAmount`) into variant unit cost for WAC valuation.
+   - Individually tracked items (`track_individually=true`): generates unique `ProductUnit` rows (`status: IN_STOCK`).
+   - Purchase cancellation: blocked if stock was sold or transferred; reverses stock movements and supplier balance without deleting rows.
+7. **Supplier Payments**:
+   - Paid against a specific purchase (blocking overpayment against due) or as a general advance.
+   - Decrements `Supplier.current_balance` and decrements `Purchase.due_amount`.
+8. **Stock Transfers**:
+   - Multi-step flow: `PENDING` -> `IN_TRANSIT` (dispatch at source WAC) -> `RECEIVED` (stock-in at destination at transfer cost, recalculating destination WAC).
+   - Partial receipt records discrepancies without losing audit trail.
+   - Rejection/cancellation after dispatch returns stock to source at transfer cost.
+   - `createInstantTransfer`: internal idempotent method using `StockTransfer.idempotency_key`.
+9. **Stock Adjustments & Segregation of Duties**:
+   - Items record `system_qty`, `physical_qty`, `difference_qty`, `unit_cost`.
+   - Stock balance changes **only** on approval (`stock.approve` permission).
+   - The creator cannot approve their own adjustment unless they are the business owner.
+10. **Stocktake (Physical Count)**:
+    - Enforces only one `IN_PROGRESS` stocktake per branch.
+    - Takes a snapshot of system stock, allows recording physical counts, and optionally generates a `DRAFT` `StockAdjustment`.
+11. **Damaged Stock**:
+    - Lifecycle: `PENDING` -> `APPROVED` -> `WRITTEN_OFF`.
+    - Stock-out movement (`DAMAGE`) happens on write-off using exact WAC at that moment.
+12. **Consistency Checker**:
+    - Admin-only tool comparing `StockBalance.quantity` against the sum of `StockMovement` and `ProductUnit` counts, reporting discrepancies without auto-fixing.
+
+---
+
+### Phase 3 API Endpoints & cURL Examples
+
+#### 1. Suppliers (Business-wide)
+
+##### A. Create Supplier
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/suppliers \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Apex Fabrics Ltd.",
+    "code": "SUP-APEX",
+    "companyName": "Apex Holdings",
+    "phone": "01711223344",
+    "email": "contact@apexfabrics.com",
+    "city": "Dhaka",
+    "openingBalance": 15000.00
+  }'
+```
+
+##### B. Get Supplier Ledger
+```bash
+curl -X GET "http://localhost:4000/api/v1/inventory/suppliers/<SUPPLIER_UUID>/ledger?startDate=2026-01-01&endDate=2026-12-31" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+---
+
+#### 2. Purchase Orders
+
+##### A. Create Purchase Order (DRAFT)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/purchase-orders \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "supplierId": "<SUPPLIER_UUID>",
+    "expectedDelivery": "2026-10-25",
+    "notes": "Winter apparel pre-order",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 100,
+        "unitCost": 450.00
+      }
+    ]
+  }'
+```
+
+##### B. Issue Purchase Order
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/purchase-orders/<PO_UUID>/issue \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 3. Purchases (Goods Receipt)
+
+##### A. Receive Purchase (with Landed Cost & Tracked Units)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/purchases \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "supplierId": "<SUPPLIER_UUID>",
+    "supplierInvoiceNo": "INV-APEX-901",
+    "discountAmount": 500.00,
+    "shippingCost": 800.00,
+    "paidAmount": 10000.00,
+    "landedCost": true,
+    "paymentMethod": "BANK",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 25,
+        "unitCost": 500.00
+      }
+    ]
+  }'
+```
+
+##### B. Cancel Purchase
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/purchases/<PURCHASE_UUID>/cancel \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 4. Supplier Payments
+
+##### A. Pay Against Purchase or Advance
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/supplier-payments \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "supplierId": "<SUPPLIER_UUID>",
+    "purchaseId": "<PURCHASE_UUID>",
+    "amount": 2500.00,
+    "paymentMethod": "BANK",
+    "referenceNo": "CHQ-001928",
+    "notes": "Partial bill clearance"
+  }'
+```
+
+---
+
+#### 5. Purchase Returns
+
+##### A. Return Items to Supplier
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/purchase-returns \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "supplierId": "<SUPPLIER_UUID>",
+    "purchaseId": "<PURCHASE_UUID>",
+    "reason": "Damaged embroidery",
+    "status": "COMPLETED",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 2,
+        "unitCost": 500.00
+      }
+    ]
+  }'
+```
+
+---
+
+#### 6. Stock Transfers
+
+##### A. Initiate Transfer (PENDING)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/transfers \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <FROM_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "toBranchId": "<TO_BRANCH_UUID>",
+    "notes": "Transfer for weekend showroom rush",
+    "items": [
+      { "variantId": "<VARIANT_UUID>", "sentQty": 10 }
+    ]
+  }'
+```
+
+##### B. Dispatch Transfer
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/transfers/<TRANSFER_UUID>/dispatch \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <FROM_BRANCH_UUID>"
+```
+
+##### C. Receive Transfer (with Discrepancy Recording)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/transfers/<TRANSFER_UUID>/receive \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <TO_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      {
+        "itemId": "<TRANSFER_ITEM_UUID>",
+        "receivedQty": 9,
+        "discrepancyNote": "1 unit missing in transit delivery"
+      }
+    ]
+  }'
+```
+
+##### D. Instant Transfer (Admin / Cross-Branch Sale)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/transfers/instant \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <FROM_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fromBranchId": "<FROM_BRANCH_UUID>",
+    "toBranchId": "<TO_BRANCH_UUID>",
+    "idempotencyKey": "pos-auto-trn-9988",
+    "items": [
+      { "variantId": "<VARIANT_UUID>", "quantity": 1 }
+    ]
+  }'
+```
+
+---
+
+#### 7. Stock Adjustments
+
+##### A. Create DRAFT Adjustment
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/adjustments \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "PHYSICAL_COUNT_DISCREPANCY",
+    "notes": "Month-end floor count",
+    "items": [
+      { "variantId": "<VARIANT_UUID>", "physicalQty": 22 }
+    ]
+  }'
+```
+
+##### B. Approve Adjustment (Changes stock; creator cannot approve unless owner)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/adjustments/<ADJUSTMENT_UUID>/approve \
+  -H "Authorization: Bearer <MANAGER_OR_OWNER_TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 8. Stocktake
+
+##### A. Start Stocktake
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/stocktakes/start \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoryId": "<OPTIONAL_CATEGORY_UUID>",
+    "notes": "Formal shirts audit"
+  }'
+```
+
+##### B. Complete Stocktake (Auto-generate Draft Adjustment)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/stocktakes/<STOCKTAKE_UUID>/complete \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "createAdjustment": true
+  }'
+```
+
+---
+
+#### 9. Damaged Stock
+
+##### A. Report Damaged Stock
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/damaged-stock \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variantId": "<VARIANT_UUID>",
+    "quantity": 2,
+    "reason": "Stained during customer fitting"
+  }'
+```
+
+##### B. Write-Off Damaged Stock (Deducts stock at exact current WAC)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/damaged-stock/<DAMAGE_UUID>/write-off \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 10. Stock Queries & Valuation
+
+##### A. Current Stock with Filters & Pagination
+```bash
+curl -X GET "http://localhost:4000/api/v1/inventory/stock?page=1&limit=20&lowStockOnly=true" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### B. All-Branches Stock Summary (Admins Only)
+```bash
+curl -X GET http://localhost:4000/api/v1/inventory/stock/all-branches-summary \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### C. Stock Movement Audit History
+```bash
+curl -X GET "http://localhost:4000/api/v1/inventory/stock/movements?variantId=<VARIANT_UUID>" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### D. Stock Valuation Report
+```bash
+curl -X GET http://localhost:4000/api/v1/inventory/stock/valuation \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### E. Opening Stock Entry (Allowed only if zero prior movements)
+```bash
+curl -X POST http://localhost:4000/api/v1/inventory/stock/opening \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variantId": "<VARIANT_UUID>",
+    "quantity": 50,
+    "unitCost": 350.00
+  }'
+```
+
+##### F. Consistency Verification Tool (Admin Only)
+```bash
+curl -X GET http://localhost:4000/api/v1/inventory/stock/consistency-check \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+

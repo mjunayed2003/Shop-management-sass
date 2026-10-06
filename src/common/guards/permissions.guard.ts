@@ -59,8 +59,45 @@ export class PermissionsGuard implements CanActivate {
       rolePermissions.map((rp) => rp.permission.code),
     );
 
+    const hasPermission = (required: string): boolean => {
+      if (userPermissionCodes.has(required)) return true;
+
+      const colonForm = required.replace(/\./g, ':');
+      const dotForm = required.replace(/:/g, '.');
+      if (userPermissionCodes.has(colonForm) || userPermissionCodes.has(dotForm)) {
+        return true;
+      }
+
+      const prefix = required.includes(':') ? required.split(':')[0] : required.split('.')[0];
+      if (
+        userPermissionCodes.has(`${prefix}:*`) ||
+        userPermissionCodes.has(`${prefix}.*`) ||
+        userPermissionCodes.has('*')
+      ) {
+        return true;
+      }
+
+      if (prefix === 'stock' || prefix === 'inventory') {
+        const action = required.includes(':') ? required.split(':')[1] : required.split('.')[1];
+        if (
+          userPermissionCodes.has(`inventory:${action}`) ||
+          userPermissionCodes.has(`inventory.${action}`) ||
+          userPermissionCodes.has(`stock:${action}`) ||
+          userPermissionCodes.has(`stock.${action}`) ||
+          userPermissionCodes.has('inventory:*') ||
+          userPermissionCodes.has('inventory.*') ||
+          userPermissionCodes.has('stock:*') ||
+          userPermissionCodes.has('stock.*')
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
     const missingPermissions = requiredPermissions.filter(
-      (perm) => !userPermissionCodes.has(perm),
+      (perm) => !hasPermission(perm),
     );
 
     if (missingPermissions.length > 0) {

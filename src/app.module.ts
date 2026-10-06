@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { OnboardingModule } from './modules/onboarding/onboarding.module.js';
 import { BranchModule } from './modules/branch/branch.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
+import { InventoryModule } from './modules/inventory/inventory.module.js';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { BranchContextGuard } from './common/guards/branch-context.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
@@ -21,6 +22,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter.js';
     OnboardingModule,
     BranchModule,
     CatalogModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [
