@@ -2,10 +2,13 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
+  Param,
   Req,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -51,5 +54,53 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current profile data' })
   async getProfile(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.getProfile(user.id, user.businessId);
+  }
+
+  @ApiBearerAuth()
+  @OptionalBranch()
+  @Get('sessions')
+  async getSessions(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.getUserSessions(user.id);
+  }
+
+  @ApiBearerAuth()
+  @OptionalBranch()
+  @Delete('sessions/:id')
+  async revokeSession(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) sessionId: string,
+  ) {
+    return this.authService.revokeSession(user.id, sessionId);
+  }
+
+  @ApiBearerAuth()
+  @OptionalBranch()
+  @Post('logout-all')
+  async logoutAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.logoutAllDevices(user.id);
+  }
+
+  @ApiBearerAuth()
+  @OptionalBranch()
+  @Post('change-password')
+  async changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { oldPassword: string; newPassword: string },
+  ) {
+    return this.authService.changePassword(user.id, body.oldPassword, body.newPassword);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  async forgotPassword(@Body('identifier') identifier: string) {
+    return this.authService.forgotPassword(identifier);
+  }
+
+  @Public()
+  @Post('reset-password')
+  async resetPassword(
+    @Body() body: { identifier: string; otp: string; newPassword: string },
+  ) {
+    return this.authService.resetPassword(body.identifier, body.otp, body.newPassword);
   }
 }

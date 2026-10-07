@@ -64,6 +64,11 @@ enum TicketStatus {
   CLOSED
 }
 
+enum TicketSenderType {
+  BUSINESS_USER
+  PLATFORM_ADMIN
+}
+
 enum BusinessStatus {
   ACTIVE
   SUSPENDED
@@ -270,6 +275,14 @@ enum SequenceType {
   TRANSFER_INVOICE
   JOURNAL_ENTRY
   EXPENSE_VOUCHER
+  DUE_COLLECTION
+  SALES_RETURN
+  EXCHANGE
+  SUPPLIER_PAYMENT
+  STOCK_ADJUSTMENT
+  STOCKTAKE
+  DAMAGE
+  PURCHASE_ORDER
 }
 
 enum NotificationType {
@@ -503,8 +516,25 @@ model SupportTicket {
   user           User?       @relation(fields: [user_id], references: [id], onDelete: SetNull)
   assigned_admin SuperAdmin? @relation(fields: [assigned_admin_id], references: [id], onDelete: SetNull)
 
+  messages       SupportTicketMessage[]
+
   @@index([business_id, status])
   @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id              String           @id @default(uuid()) @db.Uuid
+  ticket_id       String           @db.Uuid
+  sender_type     TicketSenderType
+  sender_user_id  String?          @db.Uuid
+  sender_admin_id String?          @db.Uuid
+  message         String
+  created_at      DateTime         @default(now())
+
+  ticket SupportTicket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+
+  @@index([ticket_id, created_at])
+  @@map("support_ticket_messages")
 }
 
 model SystemSetting {
@@ -1647,6 +1677,7 @@ model SalesReturn {
   sale_id             String       @db.Uuid
   customer_id         String?      @db.Uuid
   payment_account_id  String?      @db.Uuid
+  register_session_id String?      @db.Uuid
   return_no           String
   idempotency_key     String
   total_refund_amount Decimal      @db.Decimal(18, 2)
@@ -1657,17 +1688,19 @@ model SalesReturn {
   created_at          DateTime     @default(now())
   updated_at          DateTime     @updatedAt
 
-  business        Business          @relation(fields: [business_id], references: [id], onDelete: Cascade)
-  branch          Branch            @relation(fields: [branch_id], references: [id], onDelete: Cascade)
-  sale            Sale              @relation(fields: [sale_id], references: [id], onDelete: Restrict)
-  customer        Customer?         @relation(fields: [customer_id], references: [id], onDelete: SetNull)
-  payment_account PaymentAccount?   @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
-  items           SalesReturnItem[]
-  exchange        Exchange?         @relation("ReturnExchange")
+  business         Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch           Branch           @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  sale             Sale             @relation(fields: [sale_id], references: [id], onDelete: Restrict)
+  customer         Customer?        @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  payment_account  PaymentAccount?  @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  register_session RegisterSession? @relation(fields: [register_session_id], references: [id], onDelete: SetNull)
+  items            SalesReturnItem[]
+  exchange         Exchange?        @relation("ReturnExchange")
 
   @@unique([business_id, branch_id, return_no])
   @@unique([business_id, idempotency_key])
   @@index([business_id, branch_id])
+  @@index([register_session_id])
   @@map("sales_returns")
 }
 
@@ -1745,25 +1778,28 @@ model DueCollection {
   business_id        String        @db.Uuid
   branch_id          String        @db.Uuid
   customer_id        String        @db.Uuid
-  payment_account_id String?       @db.Uuid
-  collection_no      String
-  idempotency_key    String
-  amount             Decimal       @db.Decimal(18, 2)
-  payment_method     PaymentMethod @default(CASH)
-  transaction_no     String?
-  receipt_date       DateTime      @default(now())
-  notes              String?
-  created_by         String        @db.Uuid
-  created_at         DateTime      @default(now())
+  payment_account_id  String?         @db.Uuid
+  register_session_id String?         @db.Uuid
+  collection_no       String
+  idempotency_key     String
+  amount              Decimal         @db.Decimal(18, 2)
+  payment_method      PaymentMethod   @default(CASH)
+  transaction_no      String?
+  receipt_date        DateTime        @default(now())
+  notes               String?
+  created_by          String          @db.Uuid
+  created_at          DateTime        @default(now())
 
-  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
-  branch          Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
-  customer        Customer        @relation(fields: [customer_id], references: [id], onDelete: Restrict)
-  payment_account PaymentAccount? @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  business         Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch           Branch           @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  customer         Customer         @relation(fields: [customer_id], references: [id], onDelete: Restrict)
+  payment_account  PaymentAccount?  @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  register_session RegisterSession? @relation(fields: [register_session_id], references: [id], onDelete: SetNull)
 
   @@unique([business_id, branch_id, collection_no])
   @@unique([business_id, idempotency_key])
   @@index([business_id, customer_id])
+  @@index([register_session_id])
   @@map("due_collections")
 }
 
@@ -1856,6 +1892,9 @@ model RegisterSession {
   cash_movements CashMovement[]
   sales          Sale[]
   sale_payments  SalePayment[]
+  sales_returns   SalesReturn[]
+  due_collections DueCollection[]
+  expenses        Expense[]
 
   @@index([business_id, branch_id, status])
   @@map("register_sessions")
@@ -2030,26 +2069,29 @@ model Expense {
   business_id         String   @db.Uuid
   branch_id           String   @db.Uuid
   expense_category_id String   @db.Uuid
-  payment_account_id  String?  @db.Uuid
+  payment_account_id  String?          @db.Uuid
+  register_session_id String?          @db.Uuid
   expense_no          String
-  amount              Decimal  @db.Decimal(18, 2)
-  tax_amount          Decimal  @default(0) @db.Decimal(18, 2)
-  total_amount        Decimal  @db.Decimal(18, 2)
-  expense_date        DateTime @default(now())
+  amount              Decimal          @db.Decimal(18, 2)
+  tax_amount          Decimal          @default(0) @db.Decimal(18, 2)
+  total_amount        Decimal          @db.Decimal(18, 2)
+  expense_date        DateTime         @default(now())
   vendor_name         String?
   receipt_no          String?
   description         String?
-  created_by          String   @db.Uuid
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
+  created_by          String           @db.Uuid
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
 
-  business        Business        @relation(fields: [business_id], references: [id], onDelete: Cascade)
-  branch          Branch          @relation(fields: [branch_id], references: [id], onDelete: Cascade)
-  category        ExpenseCategory @relation(fields: [expense_category_id], references: [id], onDelete: Restrict)
-  payment_account PaymentAccount? @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  business         Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  branch           Branch           @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  category         ExpenseCategory  @relation(fields: [expense_category_id], references: [id], onDelete: Restrict)
+  payment_account  PaymentAccount?  @relation(fields: [payment_account_id], references: [id], onDelete: SetNull)
+  register_session RegisterSession? @relation(fields: [register_session_id], references: [id], onDelete: SetNull)
 
   @@unique([business_id, branch_id, expense_no])
   @@index([business_id, branch_id, expense_date])
+  @@index([register_session_id])
   @@map("expenses")
 }
 

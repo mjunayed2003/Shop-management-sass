@@ -20,7 +20,15 @@ export class SequenceService {
       RETURN_INVOICE: 'RET-',
       TRANSFER_INVOICE: 'TRN-',
       JOURNAL_ENTRY: 'JE-',
-      EXPENSE_VOUCHER: 'PAY-',
+      EXPENSE_VOUCHER: 'EXP-',
+      DUE_COLLECTION: 'COL-',
+      SALES_RETURN: 'SR-',
+      EXCHANGE: 'EXC-',
+      SUPPLIER_PAYMENT: 'SPAY-',
+      STOCK_ADJUSTMENT: 'ADJ-',
+      STOCKTAKE: 'STK-',
+      DAMAGE: 'DMG-',
+      PURCHASE_ORDER: 'PO-',
     };
 
     const targetPrefix = customPrefix || defaultPrefixes[sequenceType] || 'DOC-';

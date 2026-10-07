@@ -32,6 +32,11 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
+    const url = request.url || '';
+    if (url.startsWith('/platform')) {
+      return true;
+    }
+
     const authHeader = request.headers['authorization'];
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -47,6 +52,10 @@ export class JwtAuthGuard implements CanActivate {
       });
     } catch {
       throw new UnauthorizedException('Token is invalid or expired');
+    }
+
+    if ((payload as any).aud === 'platform' || !payload.businessId) {
+      throw new UnauthorizedException('Access denied: Platform tokens cannot access tenant endpoints.');
     }
 
     const tokenHash = createHash('sha256').update(token).digest('hex');
@@ -81,12 +90,31 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('User account or business is deactivated');
     }
 
-    // Business rule: Check subscription status (block SUSPENDED)
+    // Business rule: Check subscription status (block SUSPENDED/CANCELLED except billing & support)
     const subscription = user.business.subscription;
-    if (subscription && subscription.status === 'SUSPENDED') {
-      throw new ForbiddenException(
-        'Subscription is suspended. Please contact platform support or renew payment.',
-      );
+    if (subscription) {
+      if (subscription.status === 'SUSPENDED' || subscription.status === 'CANCELLED') {
+        const url = request.url || '';
+        const isExempt =
+          url.includes('/subscription') ||
+          url.includes('/support') ||
+          url.includes('/auth');
+
+        if (!isExempt) {
+          throw new ForbiddenException({
+            code: 'SUBSCRIPTION_SUSPENDED',
+            message: 'Subscription is suspended or cancelled. Please settle pending invoices or contact support.',
+          });
+        }
+      } else if (subscription.status === 'PAYMENT_DUE' || subscription.status === 'GRACE') {
+        const res = context.switchToHttp().getResponse();
+        if (res && typeof res.setHeader === 'function') {
+          res.setHeader(
+            'x-subscription-warning',
+            `Subscription status is ${subscription.status}. Please settle pending invoice to avoid suspension.`,
+          );
+        }
+      }
     }
 
     const authUser: AuthenticatedUser = {

@@ -30,6 +30,10 @@ export const PERMISSIONS = {
   BARCODE_PRINT: 'barcode:print',
   BARCODE_REPRINT: 'barcode:reprint',
 
+  // Customers
+  CUSTOMERS_MANAGE: 'customers:manage',
+  CUSTOMERS_READ: 'customers:read',
+
   // Sales & POS
   POS_ACCESS: 'pos:access',
   SALES_CREATE: 'sales:create',
@@ -37,6 +41,8 @@ export const PERMISSIONS = {
   SALES_RETURN: 'sales:return',
   SALES_EXCHANGE: 'sales:exchange',
   SALES_VOID: 'sales:void',
+  SALES_CROSS_BRANCH: 'sale:cross_branch',
+  SALES_DISCOUNT: 'sale:discount',
   DUE_COLLECT: 'due:collect',
 
   // Purchasing
@@ -49,12 +55,30 @@ export const PERMISSIONS = {
   CASH_REGISTER_OPEN_CLOSE: 'cash_register:open_close',
   CASH_REGISTER_VIEW: 'cash_register:view',
   CASH_MOVE: 'cash:move',
+  REGISTER_CLOSE: 'register:close',
+  REGISTER_CLOSE_ANY: 'register:close_any',
 
   // Expenses & Accounting
   EXPENSES_CREATE: 'expenses:create',
   EXPENSES_READ: 'expenses:read',
+  EXPENSES_UPDATE: 'expenses:update',
   EXPENSES_DELETE: 'expenses:delete',
+  EXPENSES_APPROVE: 'expenses:approve',
   REPORTS_VIEW: 'reports:view',
+
+  // Aliases for Phase 5
+  RETURN_CREATE: 'return.create',
+  RETURN_CROSS_BRANCH: 'return.cross_branch',
+  EXCHANGE_CREATE: 'exchange.create',
+  DUE_COLLECT_DOT: 'due.collect',
+  CASH_MOVE_DOT: 'cash.move',
+  EXPENSE_VIEW: 'expense.view',
+  EXPENSE_CREATE: 'expense.create',
+  EXPENSE_UPDATE: 'expense.update',
+  EXPENSE_DELETE: 'expense.delete',
+  REGISTER_CLOSE_DOT: 'register.close',
+  REGISTER_CLOSE_ANY_DOT: 'register.close_any',
+  REPORT_VIEW_DOT: 'report.view',
 } as const;
 
 export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];

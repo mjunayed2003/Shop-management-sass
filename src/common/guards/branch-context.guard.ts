@@ -37,6 +37,11 @@ export class BranchContextGuard implements CanActivate {
     );
 
     const request = context.switchToHttp().getRequest<Request>();
+    const url = request.url || '';
+    if (url.startsWith('/platform')) {
+      return true;
+    }
+
     const user = (request as any).user as AuthenticatedUser;
 
     if (!user) {

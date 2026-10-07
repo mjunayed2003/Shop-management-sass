@@ -979,3 +979,597 @@ curl -X GET http://localhost:4000/api/v1/inventory/stock/consistency-check \
   -H "x-branch-id: <BRANCH_UUID>"
 ```
 
+---
+
+## Phase 4: POS Sales & Customer Management
+
+### Architecture & Key Design Decisions
+
+1. **Business-Wide Customers vs. Branch-Scoped Sales:**
+   - `Customer` is business-wide. A customer registered at Gulshan branch is immediately discoverable at Dhanmondi or Uttara branches.
+   - **Phone Normalization:** All Bangladesh phone numbers are canonicalized to the standard 11-digit format `01[3-9]\d{8}` (e.g. `+8801712345678`, `8801712345678`, `01712-345678` all normalize to `01712345678`). This eliminates duplicate customer records across branches and guarantees phone lookup reliability.
+   - `Sale`, `SalePayment`, `RegisterSession`, `HeldSale`, and `InvoiceSequence` remain strictly branch-scoped.
+2. **Server-Side Recalculation & Zero-Float Arithmetic:**
+   - Client-sent totals are strictly ignored. All line totals, role-based discounts, coupon limits, tax rates, and Bangladesh Taka integer round-offs (`round_off`) are recomputed on the server using `Prisma.Decimal`.
+3. **One Atomic Transaction:**
+   - Sale creation, cross-branch auto-transfers, stock deduction through `StockService.applyMovement`, tracked unit state updates (`SOLD`), `SalePayment` creation, customer due increments, loyalty points, SMS queueing, and audit logging execute inside a single Prisma transaction (`prisma.$transaction`).
+4. **Cross-Branch Sales (Auto-Transfer):**
+   - When selling stock located in another branch (`source_branch_id`), the server automatically executes `StockTransferService.createInstantTransfer` inside the **same sale transaction** before the sale stock-out. The transfer uses derived idempotency key `${sale.idempotency_key}:${source_branch_id}` and immediately ensures product assignment in the selling branch.
+   - If the sale transaction fails or rolls back, the transfer rolls back with it.
+   - Offline sales (`is_offline: true`) are prohibited from initiating cross-branch transfers.
+5. **Void Sale & Payment Reversal Decision:**
+   - When a sale is voided (`POST /api/v1/sales/:id/void`), original `SalePayment` rows are **never deleted**.
+   - Instead, the system inserts compensating negative `SalePayment` rows with derived idempotency keys (`${payment.idempotency_key}:void`, `amount: -payment.amount`). This preserves an immutable audit trail, keeps drawer shift accounting consistent, and zeros out the net sale amount.
+   - Cross-branch transferred stock remains in the selling branch upon void (auto-transfers are not reversed).
+
+---
+
+### Phase 4 Endpoints & cURL Examples
+
+#### 1. Customers (Business-Wide)
+
+##### A. Quick-Create Customer (POS Cashier)
+```bash
+curl -X POST http://localhost:4000/api/v1/customers/quick \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Tanvir Ahmed",
+    "phone": "+8801712345678"
+  }'
+```
+
+##### B. Customer Phone Lookup (Cross-Branch)
+```bash
+curl -X GET "http://localhost:4000/api/v1/customers/lookup?phone=01712345678" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+##### C. Customer Ledger & Running Due
+```bash
+curl -X GET "http://localhost:4000/api/v1/customers/ledger/<CUSTOMER_UUID>" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+##### D. Customer Due Summary by Branch (Read-Only)
+```bash
+curl -X GET http://localhost:4000/api/v1/customers/due-summary \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+---
+
+#### 2. Cash Register Sessions
+
+##### A. Open Register Session
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/register-sessions/open \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cashRegisterId": "<CASH_REGISTER_UUID>",
+    "openingBalance": 2000.00
+  }'
+```
+
+##### B. Get Current Active Register Session
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/register-sessions/current \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 3. Cart Pricing Calculation (No DB Writes)
+
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/calculate \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "saleType": "RETAIL",
+    "couponCode": "EID2026",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 2,
+        "discountAmount": 50.00
+      }
+    ]
+  }'
+```
+
+---
+
+#### 4. POS Sale Transactions
+
+##### A. Normal POS Sale (Cash Tender with Change)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotencyKey": "pos-sale-20261006-001",
+    "saleType": "RETAIL",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 1
+      }
+    ],
+    "payments": [
+      {
+        "paymentMethod": "CASH",
+        "amount": 2000.00
+      }
+    ]
+  }'
+```
+
+##### B. Credit Sale (Requires Registered Customer & Credit Limit)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotencyKey": "pos-credit-sale-002",
+    "customerId": "<CUSTOMER_UUID>",
+    "saleType": "RETAIL",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 2
+      }
+    ],
+    "payments": [
+      {
+        "paymentMethod": "BKASH",
+        "amount": 1000.00,
+        "transactionNo": "TRX-BKASH-8812"
+      }
+    ]
+  }'
+```
+
+##### C. Cross-Branch Sale (Auto-Transfer Stock from Source Branch)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_GULSHAN_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotencyKey": "pos-cross-branch-sale-003",
+    "saleType": "RETAIL",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 1,
+        "sourceBranchId": "<BRANCH_DHANMONDI_UUID>"
+      }
+    ],
+    "payments": [
+      {
+        "paymentMethod": "CARDS",
+        "amount": 2500.00,
+        "transactionNo": "POS-CARD-APPROVAL-991"
+      }
+    ]
+  }'
+```
+
+##### D. Tracked Unit Barcode Sale
+```bash
+curl -X POST http://localhost:4000/api/v1/sales \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idempotencyKey": "pos-tracked-sale-004",
+    "saleType": "RETAIL",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 1,
+        "productUnitBarcode": "UNIT-BARCODE-1002"
+      }
+    ],
+    "payments": [
+      {
+        "paymentMethod": "CASH",
+        "amount": 4500.00
+      }
+    ]
+  }'
+```
+
+---
+
+#### 5. Void Sale (Reverse Stock & Ledger Payments)
+
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/<SALE_UUID>/void \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "Customer returned wrong garment item immediately before leaving counter"
+  }'
+```
+
+---
+
+#### 6. Held Sales (Cart Park & Retrieve)
+
+##### A. Hold Cart (No Stock Allocation)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/held \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "referenceName": "Customer waiting for friend - Counter 1",
+    "items": [
+      {
+        "variantId": "<VARIANT_UUID>",
+        "quantity": 2
+      }
+    ]
+  }'
+```
+
+##### B. List Held Sales
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/held \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### C. Retrieve & Re-Price Held Cart
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/held/<HELD_SALE_UUID>/retrieve \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 7. Sales Reporting & Queries
+
+##### A. Branch Sales List with Filters
+```bash
+curl -X GET "http://localhost:4000/api/v1/sales?page=1&limit=20&status=COMPLETED" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### B. Daily Sales Summary (Payment Breakdown & Profit)
+```bash
+curl -X GET "http://localhost:4000/api/v1/sales/reports/daily-summary?date=2026-10-06" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### C. Sales Report by Product, Category, or Brand
+```bash
+curl -X GET "http://localhost:4000/api/v1/sales/reports/by-group?groupBy=brand" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+## Phase 5: Returns, Exchange, Due Collection, Expenses, Cash Movements, Register Close
+
+### Architecture & Key Design Decisions
+
+1. **SequenceType Additions & Phase 3/4 Numbers Migration:**
+   - **Phase 3/4 Workarounds:** Phase 3 originally shared `PURCHASE_INVOICE` with prefix `'PO-'` for Purchase Orders, `EXPENSE_VOUCHER` with prefix `'PAY-'` for Supplier Payments, and `RETURN_INVOICE` with prefix `'RET-'` for Purchase Returns.
+   - **Phase 5 Strategy:** In Phase 5, we added `DUE_COLLECTION`, `SALES_RETURN`, `EXCHANGE`, `SUPPLIER_PAYMENT`, `STOCK_ADJUSTMENT`, `STOCKTAKE`, `DAMAGE`, and `PURCHASE_ORDER` to `enum SequenceType` via an additive, non-breaking migration. Existing historical sequence numbers are kept intact to preserve immutability and fiscal continuity, and `SequenceService` uses the dedicated enum types going forward with atomic upserts (`SR-`, `EXC-`, `COL-`, `EXP-`, `DMG-`, `PO-`).
+2. **Exchange Credit Representation & Cash Drawer Integrity:**
+   - In an exchange, the returned value acts as merchandise store credit towards the new sale.
+   - **Design Decision:** On the newly generated `Sale`, `total_amount = new_items_total`, and `paid_amount = credit_applied + real_payments`. Crucially, `SalePayment` rows are created **ONLY for real tender** (cash, card, mobile money). No artificial "STORE_CREDIT" payment rows are inserted into `sale_payments`. This guarantees that register session cash summaries, drawer shift reconciliations, and payment tender reports remain 100% accurate and reflect physical cash in drawer.
+3. **Partial-Return Sale Status:**
+   - **Design Decision:** When a sale is partially returned, the parent `Sale.status` is **not** changed to `RETURNED`. It retains its active status (`COMPLETED`, `PARTIALLY_PAID`, etc.) and the system tracks return progress via `SaleItem.returned_qty`. `Sale.status` transitions to `RETURNED` only when every single item on the invoice has been 100% returned (`returned_qty == quantity`). This prevents premature invoice invalidation on partial returns while keeping reporting unambiguous.
+4. **Damaged-Return Handling & Stock Ledger Reconcilement:**
+   - **Design Decision:** When customer returns a garment in `DAMAGED` condition, it must never become sellable in `StockBalance`. To maintain an unbroken double-entry audit trail in `StockMovement`, the system executes two atomic movements:
+     1. A `SALE_RETURN` stock-in into the accepting branch at the original `unit_cost` (reversing the sale from the customer).
+     2. A subsequent `DAMAGE` stock-out from the accepting branch at the same `unit_cost` (recording the loss).
+     3. Simultaneously creates a `DamagedStock` row with status `WRITTEN_OFF` and the provided damage reason.
+     This ensures the branch movement ledger perfectly reconciles without ever showing damaged items as available stock.
+5. **Expense Delete & Update Behavior:**
+   - **Design Decision:** The `expenses` schema does not contain a `deleted_at` column. Soft-delete without schema changes was not possible. Therefore, `DELETE /api/v1/expenses/:id` performs a hard delete, but **strictly captures an immutable snapshot of all expense fields into `AuditLog` (action: DELETE)** before removing the row.
+   - For updates, if an expense was linked to a register session that is now `CLOSED`, edits are locked unless the user holds `expense.update` permission and supplies a mandatory audit reason.
+6. **Register Session Cash Tracking:**
+   - `register_session_id` was added to `DueCollection`, `SalesReturn`, and `Expense` via relation to `RegisterSession`.
+   - The register close expected balance calculation is:
+     $$\text{Expected Balance} = \text{Opening} + \text{Cash Sales} + \text{Cash Dues} + \text{Pay-Ins} - \text{Pay-Outs} - \text{Cash Returns} - \text{Cash Exchange Refunds} - \text{Cash Expenses (paid from register)}$$
+   - Voided sales in Phase 4 insert negative cash `SalePayment` records into the same session, which automatically net out in this formula.
+7. **Tracked Unit Audit Preservation:**
+   - When tracked barcode units are returned, `ProductUnit.status` is updated to `IN_STOCK` (or `DAMAGED`) and `branch_id` is updated to the accepting branch. `sold_sale_id` and `sold_at` are deliberately preserved on the unit row to maintain immutable traceability of previous sale history.
+
+---
+
+### Phase 5 Endpoints & cURL Examples
+
+#### 1. Sales Returns
+
+##### A. Partial Return (Resellable Stock, Cash Refund)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/returns \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "saleId": "<SALE_UUID>",
+    "items": [
+      {
+        "saleItemId": "<SALE_ITEM_UUID>",
+        "quantity": 1,
+        "condition": "RESELLABLE"
+      }
+    ],
+    "refundMethod": "CASH",
+    "reason": "Customer requested size change return",
+    "idempotencyKey": "return-20261007-001"
+  }'
+```
+
+##### B. Damaged Return (Stock-In + Damage Write-Off)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/returns \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "invoiceNo": "INV-000045",
+    "items": [
+      {
+        "saleItemId": "<SALE_ITEM_UUID>",
+        "quantity": 1,
+        "condition": "DAMAGED"
+      }
+    ],
+    "refundMethod": "CASH",
+    "reason": "Torn fabric defect discovered by customer",
+    "idempotencyKey": "return-20261007-002"
+  }'
+```
+
+##### C. Cross-Branch Return (Sale made in another branch)
+```bash
+# Requires "return.cross_branch" permission
+curl -X POST http://localhost:4000/api/v1/sales/returns \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <CURRENT_ACCEPTING_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "invoiceNo": "INV-000021",
+    "items": [
+      {
+        "saleItemId": "<SALE_ITEM_UUID>",
+        "quantity": 1,
+        "condition": "RESELLABLE"
+      }
+    ],
+    "refundMethod": "CASH",
+    "reason": "Customer traveling, returned at Gulshan showroom",
+    "idempotencyKey": "return-cross-branch-001"
+  }'
+```
+
+##### D. Get Printable Return Slip
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/returns/<RETURN_UUID>/slip \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 2. Merchandise Exchanges
+
+##### A. Exchange with Extra Payment (Customer Pays Difference)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/exchanges \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "originalSaleId": "<ORIGINAL_SALE_UUID>",
+    "returnedItems": [
+      {
+        "saleItemId": "<SALE_ITEM_UUID>",
+        "quantity": 1,
+        "condition": "RESELLABLE"
+      }
+    ],
+    "newItems": [
+      {
+        "variantId": "<NEW_VARIANT_UUID>",
+        "quantity": 1
+      }
+    ],
+    "payments": [
+      {
+        "paymentMethod": "CASH",
+        "amount": 350.00
+      }
+    ],
+    "reason": "Exchanged Medium Polo for Premium Denim",
+    "idempotencyKey": "exchange-20261007-001"
+  }'
+```
+
+##### B. Get Full Exchange Detail
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/exchanges/<EXCHANGE_UUID> \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 3. Customer Due Collection
+
+##### A. Due Collection in Branch 2 for Sales Across Any Branch
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/due-collections \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <RECEIVING_BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": "<CUSTOMER_UUID>",
+    "amount": 2500.00,
+    "paymentMethod": "CASH",
+    "notes": "Partial credit payment received at Dhanmondi counter",
+    "idempotencyKey": "due-col-20261007-001"
+  }'
+```
+
+##### B. Outstanding Due Aging Report (0-30, 31-60, 61-90, 90+ Days)
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/due-collections/reports/outstanding \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### C. Per-Branch Outstanding Due Split
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/due-collections/reports/branch-split \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### D. Get Due Collection Money Receipt
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/due-collections/<COLLECTION_UUID>/receipt \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 4. Showroom Expenses
+
+##### A. Expense Paid from Register Drawer (Reduces Expected Drawer Cash)
+```bash
+curl -X POST http://localhost:4000/api/v1/expenses \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expenseCategoryId": "<CATEGORY_UUID>",
+    "amount": 450.00,
+    "taxAmount": 0.00,
+    "vendorName": "Gulshan Electric Supply",
+    "receiptNo": "BILL-9821",
+    "description": "Emergency showroom tube light replacement",
+    "paymentMethod": "CASH",
+    "paidFromRegister": true
+  }'
+```
+
+##### B. Expense Category CRUD
+```bash
+curl -X POST http://localhost:4000/api/v1/expenses/categories \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Showroom Maintenance",
+    "code": "MAINTENANCE",
+    "description": "Repairs, cleaning supplies, and store fixtures"
+  }'
+```
+
+##### C. Expense Summary Report
+```bash
+curl -X GET "http://localhost:4000/api/v1/expenses/reports/summary?startDate=2026-10-01" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 5. Cash Movements (Drawer In / Out)
+
+##### A. Cash Pay-In (Opening petty cash add)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/register-sessions/cash-movements \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "PAY_IN",
+    "amount": 2000.00,
+    "reason": "Additional change coins received from bank"
+  }'
+```
+
+##### B. Cash Pay-Out (Validated against live drawer cash)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/register-sessions/cash-movements \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "PAY_OUT",
+    "amount": 1000.00,
+    "reason": "Mid-day cash drop to branch vault"
+  }'
+```
+
+---
+
+#### 6. Register Reconciliation & Shift Close (X & Z Reports)
+
+##### A. Live X Report (Session Summary without side-effects)
+```bash
+curl -X GET http://localhost:4000/api/v1/sales/register-sessions/summary \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### B. Register Close (Z Report with Discrepancy & Manager Alerts)
+```bash
+curl -X POST http://localhost:4000/api/v1/sales/register-sessions/close \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "closingBalance": 7450.00,
+    "closingNotes": "{\"denominations\":{\"1000\":6,\"500\":2,\"100\":4,\"50\":1},\"varianceReason\":\"Short 50 Tk due to minor coin dispensing discrepancy\"}"
+  }'
+```
+
+##### C. Branch Daily Cash Book
+```bash
+curl -X GET "http://localhost:4000/api/v1/sales/register-sessions/cash-book?date=2026-10-07" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### 7. Profit & Branch Summary Reports
+
+##### A. Branch and Combined Profit & Loss Report
+```bash
+curl -X GET "http://localhost:4000/api/v1/sales/reports/profit?startDate=2026-10-01&endDate=2026-10-07" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+##### B. Payment Tender Collections Summary
+```bash
+curl -X GET "http://localhost:4000/api/v1/sales/reports/collections?startDate=2026-10-07" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+
+
