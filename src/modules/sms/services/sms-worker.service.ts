@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { SMS_PROVIDER_TOKEN, SmsProvider } from '../interfaces/sms-provider.interface.js';
+import { SMS_PROVIDER_TOKEN } from '../interfaces/sms-provider.interface.js';
+import type { SmsProvider } from '../interfaces/sms-provider.interface.js';
 import { SmsStatus } from '../../../generated/prisma/client.js';
 
 @Injectable()

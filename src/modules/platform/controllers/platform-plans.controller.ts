@@ -12,7 +12,8 @@ import {
 import { PlatformAuthGuard } from '../guards/platform-auth.guard.js';
 import { PlatformRoles } from '../guards/platform-roles.decorator.js';
 import { SuperAdminRole } from '../../../generated/prisma/client.js';
-import { PlatformPlansService, CreatePlanDto } from '../services/platform-plans.service.js';
+import { PlatformPlansService } from '../services/platform-plans.service.js';
+import type { CreatePlanDto } from '../services/platform-plans.service.js';
 
 @Controller('platform/plans')
 @UseGuards(PlatformAuthGuard)
