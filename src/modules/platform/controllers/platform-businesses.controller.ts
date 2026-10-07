@@ -13,7 +13,8 @@ import {
 import { PlatformAuthGuard } from '../guards/platform-auth.guard.js';
 import { PlatformRoles } from '../guards/platform-roles.decorator.js';
 import { SuperAdminRole, BusinessStatus, SubscriptionStatus } from '../../../generated/prisma/client.js';
-import { PlatformBusinessesService, CreateOverrideDto } from '../services/platform-businesses.service.js';
+import { PlatformBusinessesService } from '../services/platform-businesses.service.js';
+import type { CreateOverrideDto } from '../services/platform-businesses.service.js';
 
 @Controller('platform')
 @UseGuards(PlatformAuthGuard)

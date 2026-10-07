@@ -47,12 +47,12 @@ export class NotificationCronService {
   async generateLowStockDigests(): Promise<number> {
     const balances = await this.prisma.stockBalance.findMany({
       where: {
-        product_variant: {
+        variant: {
           reorder_level: { gt: 0 },
         },
       },
       include: {
-        product_variant: {
+        variant: {
           select: { sku: true, reorder_level: true, product: { select: { name: true } } },
         },
       },
@@ -62,12 +62,12 @@ export class NotificationCronService {
 
     for (const b of balances) {
       const avail = Number(b.quantity) - Number(b.allocated_quantity);
-      if (avail <= b.product_variant.reorder_level) {
+      if (avail <= b.variant.reorder_level) {
         const key = `${b.business_id}:${b.branch_id}`;
         if (!lowStockByBranch.has(key)) {
           lowStockByBranch.set(key, { businessId: b.business_id, branchId: b.branch_id, items: [] });
         }
-        lowStockByBranch.get(key)!.items.push(`${b.product_variant.sku} (Available: ${avail})`);
+        lowStockByBranch.get(key)!.items.push(`${b.variant.sku} (Available: ${avail})`);
       }
     }
 

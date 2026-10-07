@@ -65,7 +65,7 @@ export class ExportService {
     const balances = await this.prisma.stockBalance.findMany({
       where,
       include: {
-        product_variant: { include: { product: true } },
+        variant: { include: { product: true } },
         branch: true,
       },
       take: 5000,
@@ -73,8 +73,8 @@ export class ExportService {
 
     const headers = ['SKU', 'Product Name', 'Branch', 'Quantity', 'Avg Cost', 'Total Value'];
     const rows = balances.map((b) => [
-      b.product_variant.sku,
-      b.product_variant.product.name,
+      b.variant.sku,
+      b.variant.product.name,
       b.branch.name,
       Number(b.quantity),
       Number(b.avg_cost_price),
