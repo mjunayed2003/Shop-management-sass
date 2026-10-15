@@ -1571,5 +1571,302 @@ curl -X GET "http://localhost:4000/api/v1/sales/reports/collections?startDate=20
   -H "x-branch-id: <BRANCH_UUID>"
 ```
 
+---
+
+## Phase 6 - Offline Sync, SMS, Notifications, Subscription Billing, Super Admin & Dashboards
+
+### 1. Architecture Rationale & Unstated Design Decisions
+
+#### A. Negative Stock on Offline Sync (Conflict-Warning Model)
+* **The Problem:** In physical apparel retail in Bangladesh, internet disruptions are frequent. While offline, a customer physically picks an item from the rack, pays cash to the cashier, and walks out with the shopping bag. When connectivity is restored and the batch is pushed, server inventory balances might be zero or insufficient (e.g., due to an online order, another cashier selling the same item, or pending stocktakes).
+* **Decision:** Rejecting the offline sale is unacceptable because the sale physically happened and money was taken. We updated `StockService.applyMovement` to support `allowNegativeStock: true`, restricted strictly to offline sync operations. The sale is committed, stock balance drops into negative numbers, the sync queue item is marked `CONFLICT`, a `SYSTEM_ALERT` notification is immediately dispatched to branch managers listing affected SKUs and negative balances, and the record appears in `/api/v1/sync/negative-stock` for physical stocktake resolution.
+
+#### B. Invoice Number Block Gaps
+* **The Problem:** Renumbering invoices upon reconnect breaks paper receipts already printed and handed to customers.
+* **Decision:** POS clients pre-reserve blocks of numbers (e.g. 50-200) via `POST /sync/reserve-invoice-numbers`, atomically advancing `InvoiceSequence` under PostgreSQL `SELECT FOR UPDATE`. The client issues invoices locally using these numbers. Any unconsumed numbers (due to app reset, device replacement, or cache clearing) remain skipped. Gaps in invoice sequences are expected, standard, and legally compliant for retail sync architectures.
+
+#### C. Platform Invoice & Ticket Number Sequences
+* **The Problem:** Platform invoices (`SubscriptionInvoice`) and support tickets (`SupportTicket`) are platform-wide entities. Creating a tenant-scoped sequence or altering the schema was prohibited.
+* **Decision:** Atomic platform sequences (`seq:platform_invoice`, `seq:support_ticket`) are managed via `SystemSetting` records updated under pessimistic row locking (`SELECT FOR UPDATE`). This generates sequential, zero-padded human-readable codes (`PINV-000001`, `TICK-000001`) with zero race conditions.
+
+#### D. Proration & Upgrade Rules
+* **Decision:** Upgrades apply immediately, elevating user, branch, product, and feature limits in real time. For mid-period upgrades, the simplest and most robust retail SaaS model is used: the higher tier limits take effect instantly, and the prorated price difference is billed either via an immediate ad-hoc `SubscriptionInvoice` or applied at the start of the next billing cycle.
+
+#### E. Opt-Out Handling for Marketing SMS
+* **Decision:** In adherence to the strict schema boundary, customer opt-outs from promotional SMS campaigns are maintained inside `SystemSetting` under key `sms_opt_out:<business_id>` as a JSON array of normalized phone numbers. The campaign audience builder automatically filters out any matching recipient before SMS jobs are queued.
+
+#### F. Disallowed Offline Operations
+* **Decision:** The following operations require real-time global verification and are strictly prohibited offline:
+  1. **Cross-Branch Auto-Transfers (`isAutoTransfer`):** Cannot verify source branch physical stock availability.
+  2. **Voiding Online Sales (`isVoidOnlineSale`):** Risk of double cancellation or tampering.
+  3. **Online Sales Returns (`isReturn`):** Cannot verify receipt validity, original payment tender, or prevent double returns without live ledger access.
+  Any payload attempting these operations is rejected with clear error codes (`OFFLINE_NOT_ALLOWED`, `OFFLINE_RETURN_FORBIDDEN`).
+
+---
+
+### 2. Offline Sync Client Guide (Step-by-Step)
+
+1. **Bootstrap & Cache (`GET /api/v1/sync/bootstrap?updated_since=...`):**
+   When online, the POS fetches products, active variants, prices, barcodes, current branch stock snapshot, discounts, active price lists, and customer master records.
+2. **Reserve Invoice Range (`POST /api/v1/sync/reserve-invoice-numbers`):**
+   The client requests a batch (e.g., `count: 100`). The server advances `InvoiceSequence` and returns `{ prefix: "INV-GUL-", from: 101, to: 200 }`.
+3. **Sell Offline:**
+   The POS sells garments locally using reserved invoice numbers, creates offline customers (with client temporary references), records cash/card payments, and assigns the current local `register_session_id`.
+4. **Push Batch Upon Reconnect (`POST /api/v1/sync/push`):**
+   The client pushes up to 100 items. Each item has a unique `client_sync_id`. Each item runs in its own transaction.
+5. **Conflict Review & Retries:**
+   Any item encountering negative stock, closed sessions, or validation anomalies is marked `CONFLICT` or `FAILED`. Managers review and resolve items at `GET /api/v1/sync/conflicts` and `POST /api/v1/sync/conflicts/:id/resolve`.
+
+---
+
+### 3. Background Workers & Cron Jobs
+
+| Job Name | Schedule | Purpose |
+| :--- | :--- | :--- |
+| **SmsWorkerService** | Continuous / Every 30s | Claims `PENDING` SMS rows using `FOR UPDATE SKIP LOCKED`, calls provider, updates `SENT`/`FAILED`, retries with exponential backoff. |
+| **SubscriptionBillingCron** | Daily at 00:00 UTC | Detects expiring trials and billing periods, issues `SubscriptionInvoice` idempotently, advances states `TRIAL -> PAYMENT_DUE -> GRACE -> SUSPENDED`. |
+| **LowStockDigestCron** | Daily at 08:00 AM | Compiles digest of variants below reorder point per branch and dispatches notification. |
+| **UnclosedRegisterReminder**| Daily at 11:00 PM | Alerts managers of register sessions open for > 24 hours. |
+| **MaintenanceCleanupCron** | Daily at 03:00 AM | Cleans up expired `IdempotencyKey` and `UserSession` records. |
+
+---
+
+### 4. Database Indexing Review (EXPLAIN Analysis Recommendations)
+
+After analyzing the top 10 heaviest queries across all modules:
+1. `sales` list filtered by `(business_id, branch_id, status, sale_date DESC)`
+2. `stock_balances` filtered by `(branch_id, quantity)`
+3. `customers` phone lookup `(business_id, phone)`
+4. `sms_logs` worker poller `(status, created_at ASC)`
+5. `sync_queues` conflict queries `(business_id, branch_id, status)`
+
+**Recommended Migration (Pending User Approval):**
+```sql
+-- PROPOSED ADDITIVE INDEXES FOR APPROVAL:
+CREATE INDEX IF NOT EXISTS "idx_sales_biz_branch_date" ON "sales"("business_id", "branch_id", "sale_date" DESC);
+CREATE INDEX IF NOT EXISTS "idx_stock_balance_branch_qty" ON "stock_balances"("branch_id", "quantity");
+CREATE INDEX IF NOT EXISTS "idx_sms_logs_status_created" ON "sms_logs"("status", "created_at" ASC);
+CREATE INDEX IF NOT EXISTS "idx_sync_queue_status_retry" ON "sync_queues"("business_id", "branch_id", "status", "retry_count");
+```
+
+---
+
+### 5. Database Backup & Disaster Recovery Note
+* **Daily Automated Dumps:** Configure a scheduled pg_dump on Supabase / PostgreSQL:
+  ```bash
+  pg_dump -Fc --no-acl --no-owner -h <HOST> -U postgres <DB_NAME> > "pos_backup_$(date +%Y%m%d_%H%M%S).dump"
+  ```
+* **Retention Policy:** Retain hourly backups for 24 hours, daily backups for 30 days, and monthly backups for 1 year in S3/GCS with Object Lock.
+
+---
+
+### 6. Phase 6 cURL & Postman Examples
+
+#### A. Reserve Invoice Numbers & Push Offline Sale Batch with Conflict
+
+##### 1. Reserve Invoice Numbers Block
+```bash
+curl -X POST http://localhost:4000/api/v1/sync/reserve-invoice-numbers \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "count": 50
+  }'
+```
+
+##### 2. Push Offline Batch (Sale + Customer + Conflict)
+```bash
+curl -X POST http://localhost:4000/api/v1/sync/push \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      {
+        "client_sync_id": "pos-device-01-cust-101",
+        "entity_type": "CUSTOMER",
+        "client_created_at": "2026-10-07T14:30:00.000Z",
+        "payload": {
+          "client_ref": "offline-cust-1",
+          "name": "Nafis Ahmed",
+          "phone": "01819000222",
+          "creditLimit": 10000
+        }
+      },
+      {
+        "client_sync_id": "pos-device-01-sale-501",
+        "entity_type": "SALE",
+        "client_created_at": "2026-10-07T14:35:00.000Z",
+        "payload": {
+          "invoiceNo": "INV-GUL-000101",
+          "registerSessionId": "<ACTIVE_REGISTER_SESSION_UUID>",
+          "customerPhone": "01819000222",
+          "items": [
+            {
+              "variantId": "<VARIANT_UUID>",
+              "quantity": 3,
+              "unitPrice": 1250.00
+            }
+          ],
+          "payments": [
+            {
+              "method": "CASH",
+              "amount": 3750.00
+            }
+          ]
+        }
+      }
+    ]
+  }'
+```
+
+##### 3. Query Negative Stock to Resolve
+```bash
+curl -X GET http://localhost:4000/api/v1/sync/negative-stock \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### B. SMS Queue, Worker Trigger & Delivery Status Webhook
+
+##### 1. Send SMS (Due Reminder)
+```bash
+curl -X POST http://localhost:4000/api/v1/sms/send \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recipientPhone": "01711000111",
+    "purpose": "DUE_REMINDER",
+    "language": "bn",
+    "variables": {
+      "customerName": "করিম সাহেব",
+      "due": "1500",
+      "shopName": "আউটফিট ফ্যাশন"
+    }
+  }'
+```
+
+##### 2. Delivery Status Webhook Skeleton (HMAC Verified)
+```bash
+curl -X POST http://localhost:4000/api/v1/sms/webhook \
+  -H "x-webhook-signature: <HMAC_SHA256_HEX>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerRef": "msg-bd-999",
+    "status": "DELIVERED",
+    "cost": 0.35,
+    "deliveredAt": "2026-10-07T14:40:00Z"
+  }'
+```
+
+---
+
+#### C. Subscription Suspend, Pay & Reactivate Flow
+
+##### 1. Platform Admin Suspends Business
+```bash
+curl -X POST http://localhost:4000/platform/businesses/<BUSINESS_UUID>/suspend \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "Outstanding subscription balance past 14-day grace period."
+  }'
+```
+
+##### 2. Business User Attempting Access Gets 403 SUBSCRIPTION_SUSPENDED
+```bash
+curl -X GET http://localhost:4000/api/v1/sales \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+# HTTP 403 Forbidden: {"statusCode": 403, "error": "SUBSCRIPTION_SUSPENDED", "message": "Your subscription is suspended. Please contact billing."}
+```
+
+##### 3. Platform Admin Records Manual Payment against Platform Invoice
+```bash
+curl -X POST http://localhost:4000/platform/invoices/<PLATFORM_INVOICE_UUID>/payment \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 2000.00,
+    "paymentMethod": "BKASH",
+    "transactionId": "TRX9988776655",
+    "notes": "Verified bKash merchant payment."
+  }'
+```
+
+##### 4. Platform Admin Reactivates Business
+```bash
+curl -X POST http://localhost:4000/platform/businesses/<BUSINESS_UUID>/reactivate \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "Invoice PAID in full. Account reinstated."
+  }'
+```
+
+---
+
+#### D. Support Ticket Thread Exchange
+
+##### 1. Business User Creates Ticket
+```bash
+curl -X POST http://localhost:4000/api/v1/support/tickets \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Inquiry regarding barcode printer driver setup",
+    "description": "We are adding a TSC TE244 printer at Dhanmondi branch. Is ESC/POS supported?",
+    "priority": "HIGH"
+  }'
+```
+
+##### 2. Platform Admin Replies
+```bash
+curl -X POST http://localhost:4000/platform/support/tickets/<TICKET_UUID>/reply \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Yes, TSPL and ESC/POS thermal barcode protocols are fully supported. Use 38x25mm labels.",
+    "status": "IN_PROGRESS"
+  }'
+```
+
+##### 3. Business User Views Full Message Thread
+```bash
+curl -X GET http://localhost:4000/api/v1/support/tickets/<TICKET_UUID> \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>"
+```
+
+---
+
+#### E. Platform Business List & Revenue Analytics
+
+##### 1. List Businesses with Subscription Filter
+```bash
+curl -X GET "http://localhost:4000/platform/businesses?status=ACTIVE&page=1&limit=20" \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_JWT>"
+```
+
+##### 2. Revenue Summary (MRR, Overdue, Collections)
+```bash
+curl -X GET http://localhost:4000/platform/invoices/summary \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_JWT>"
+```
+
+##### 3. CSV Export of Sales (Formula-Injection Protected)
+```bash
+curl -X GET "http://localhost:4000/api/v1/export/sales" \
+  -H "Authorization: Bearer <BUSINESS_JWT>" \
+  -H "x-branch-id: <BRANCH_UUID>" \
+  -o "sales_export.csv"
+```
+
+
 
 

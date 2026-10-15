@@ -280,6 +280,51 @@ export class AuthService {
     };
   }
 
+  async updateProfile(
+    userId: string,
+    businessId: string,
+    dto: { firstName?: string; lastName?: string; phone?: string; email?: string },
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, business_id: businessId, is_active: true, deleted_at: null },
+    });
+    if (!user) {
+      throw new NotFoundException('User profile not found');
+    }
+
+    if (dto.email && dto.email.trim().toLowerCase() !== user.email.toLowerCase()) {
+      const cleanEmail = dto.email.trim().toLowerCase();
+      const existing = await this.prisma.user.findFirst({
+        where: { business_id: businessId, email: cleanEmail, id: { not: userId }, deleted_at: null },
+      });
+      if (existing) {
+        throw new BadRequestException(`Email "${cleanEmail}" is already used by another user.`);
+      }
+    }
+
+    if (dto.phone && dto.phone.trim() !== user.phone) {
+      const cleanPhone = dto.phone.trim();
+      const existing = await this.prisma.user.findFirst({
+        where: { business_id: businessId, phone: cleanPhone, id: { not: userId }, deleted_at: null },
+      });
+      if (existing) {
+        throw new BadRequestException(`Phone "${cleanPhone}" is already used by another user.`);
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.firstName ? { first_name: dto.firstName.trim() } : {}),
+        ...(dto.lastName ? { last_name: dto.lastName.trim() } : {}),
+        ...(dto.email ? { email: dto.email.trim().toLowerCase() } : {}),
+        ...(dto.phone ? { phone: dto.phone.trim() } : {}),
+      },
+    });
+
+    return this.getProfile(userId, businessId);
+  }
+
   async getUserSessions(userId: string) {
     return this.prisma.userSession.findMany({
       where: {
