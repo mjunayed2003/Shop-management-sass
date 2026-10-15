@@ -69,15 +69,15 @@ export class SyncService {
           branch_id: branchId,
           sequence_type: SequenceType.SALE_INVOICE,
           prefix: 'INV-',
-          current_value: 0,
+          next_number: 1,
         },
       });
 
       // Lock row
       const lockedRows = await tx.$queryRaw<
-        Array<{ id: string; prefix: string; current_value: number }>
+        Array<{ id: string; prefix: string; next_number: number }>
       >`
-        SELECT id, prefix, current_value FROM invoice_sequences
+        SELECT id, prefix, next_number FROM invoice_sequences
         WHERE business_id = ${businessId}::uuid
           AND branch_id = ${branchId}::uuid
           AND sequence_type = 'SALE_INVOICE'
@@ -85,12 +85,12 @@ export class SyncService {
       `;
 
       const seq = lockedRows[0];
-      const fromVal = seq.current_value + 1;
-      const toVal = seq.current_value + requestedCount;
+      const fromVal = Number(seq.next_number);
+      const toVal = fromVal + requestedCount - 1;
 
       await tx.invoiceSequence.update({
         where: { id: seq.id },
-        data: { current_value: toVal },
+        data: { next_number: fromVal + requestedCount },
       });
 
       return {
@@ -173,21 +173,35 @@ export class SyncService {
     });
 
     // 4. Coupons (without internal coupon limits / codes only)
-    const coupons = await this.prisma.coupon.findMany({
+    const activeCoupons = await this.prisma.coupon.findMany({
       where: {
         business_id: businessId,
         is_active: true,
-        valid_until: { gte: new Date() },
+        expires_at: { gte: new Date() },
       },
       select: {
         id: true,
         code: true,
-        discount_type: true,
-        discount_value: true,
-        min_purchase_amount: true,
-        valid_until: true,
+        expires_at: true,
+        discount: {
+          select: {
+            type: true,
+            value: true,
+            min_purchase_amount: true,
+          },
+        },
       },
     });
+
+    const coupons = activeCoupons.map((c) => ({
+      id: c.id,
+      code: c.code,
+      discount_type: c.discount.type,
+      discount_value: c.discount.value,
+      min_purchase_amount: c.discount.min_purchase_amount,
+      expires_at: c.expires_at,
+      valid_until: c.expires_at,
+    }));
 
     // 5. User permissions
     const user = await this.prisma.user.findUnique({
@@ -680,7 +694,7 @@ export class SyncService {
         quantity: { lt: 0 },
       },
       include: {
-        product_variant: {
+        variant: {
           select: {
             id: true,
             sku: true,

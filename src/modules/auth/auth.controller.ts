@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Delete,
   Body,
   Param,
@@ -54,6 +55,18 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current profile data' })
   async getProfile(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.getProfile(user.id, user.businessId);
+  }
+
+  @ApiBearerAuth()
+  @OptionalBranch()
+  @Patch('profile')
+  @ApiOperation({ summary: 'Update current user personal profile information' })
+  @ApiResponse({ status: 200, description: 'Profile updated successfully' })
+  async updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { firstName?: string; lastName?: string; phone?: string; email?: string },
+  ) {
+    return this.authService.updateProfile(user.id, user.businessId, body);
   }
 
   @ApiBearerAuth()
